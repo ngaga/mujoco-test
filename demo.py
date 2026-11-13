@@ -10,6 +10,7 @@ from pathlib import Path
 
 import mujoco
 from motion import HOME, Motion, SOAP_OFFSET
+from vision import estimate_soap_xy
 
 ROOT = Path(__file__).resolve().parent
 
@@ -22,7 +23,9 @@ class State:
         self.commands = queue.Queue()
         self.snapshot = dict(
             phase="Prêt", running=False, holding=False, paused=False,
-            progress=0, soap_in_tray=False, viewer_url=f"http://127.0.0.1:{port}/"
+            progress=0, soap_in_tray=False, vision_enabled=False,
+            vision_detected=False, observed_soap_xy=None,
+            viewer_url=f"http://127.0.0.1:{port}/"
         )
 
     def read(self):
@@ -82,6 +85,28 @@ def reset(model, data, motion):
     mujoco.mj_forward(model, data)
 
 
+def set_initial_soap(model, data, qadr, soap_xy):
+    """Optionally move the starting soap to test feedback instead of memorized XYZ."""
+    if soap_xy is not None:
+        data.qpos[qadr:qadr + 2] = soap_xy
+        mujoco.mj_forward(model, data)
+
+
+def observe_soap(model, data, motion, renderer, camera_id):
+    """Render the overhead RGB camera and correct the ongoing pick target."""
+    renderer.update_scene(data, camera="overhead")
+    image = renderer.render()
+    # Approximate yellow soap top surface: initial center z + ellipsoid radius.
+    xy = estimate_soap_xy(
+        image, data.cam_xpos[camera_id], data.cam_xmat[camera_id],
+        float(model.cam_fovy[camera_id]), plane_z=0.866,
+    )
+    if xy is not None and -0.6 < xy[0] < -0.08 and -0.32 < xy[1] < 0.32:
+        motion.retarget_soap(xy)
+        return xy
+    return None
+
+
 def step(model, data, motion, qadr, vadr):
     motion.advance(model.opt.timestep)
     data.mocap_pos[0] = motion.position
@@ -126,6 +151,10 @@ def main():
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--check-model", action="store_true")
     parser.add_argument("--smoke-test", action="store_true")
+    parser.add_argument("--visual-servo", action="store_true",
+                        help="use overhead RGB images to correct soap approach")
+    parser.add_argument("--soap-xy", nargs=2, type=float, metavar=("X", "Y"),
+                        help="relocate the initial soap to test visual feedback")
     args = parser.parse_args()
     model = mujoco.MjModel.from_xml_path(str(ROOT / "models" / "bathroom.xml"))
     print(f"Loaded: {model.nbody} bodies, {model.ngeom} geoms")
@@ -137,6 +166,8 @@ def main():
         return
     if args.viewer_port == args.controls_port:
         parser.error("Control and viewer ports must be different")
+    if args.soap_xy and not args.visual_servo:
+        parser.error("--soap-xy requires --visual-servo so that the pick target is observed")
 
     from mujoco.studio import app as studio_app
     from mujoco.studio import launch_web, messages, plugin, sim, viewer_protocol
@@ -156,7 +187,16 @@ def main():
     motion = Motion()
     qadr, vadr = soap_joint_addresses(model)
     reset(model, data, motion)
+    set_initial_soap(model, data, qadr, args.soap_xy)
     state = State(args.viewer_port)
+    state.publish(vision_enabled=args.visual_servo)
+    renderer = None
+    camera_id = -1
+    if args.visual_servo:
+        camera_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_CAMERA, "overhead")
+        if camera_id == -1:
+            raise ValueError("overhead camera not found in bathroom.xml")
+        renderer = mujoco.Renderer(model, width=640, height=480)
     try:
         server = ThreadingHTTPServer(("127.0.0.1", args.controls_port), handler_factory(state))
     except OSError as exc:
@@ -168,6 +208,7 @@ def main():
     print(f"Control panel: http://127.0.0.1:{args.controls_port}/")
     print("Ctrl+C to stop. Demo uses a scripted grasp, not an autonomous one.")
     panel_paused = False
+    vision_tick = 0
     try:
         with launch_web.launch(cfg, plugins=[studio_app.App(), controls]) as viewer:
             if not args.no_browser:
@@ -187,14 +228,28 @@ def main():
                         panel_paused = not panel_paused
                     elif own and cmd == "reset":
                         reset(model, data, motion)
+                        set_initial_soap(model, data, qadr, args.soap_xy)
+                        state.publish(vision_detected=False, observed_soap_xy=None)
                         panel_paused = False
                     elif own and cmd == "start":
                         reset(model, data, motion)
+                        set_initial_soap(model, data, qadr, args.soap_xy)
                         panel_paused = False
+                        vision_tick = 0
                         motion.start()
+                        if renderer is not None:
+                            xy = observe_soap(model, data, motion, renderer, camera_id)
+                            state.publish(vision_detected=xy is not None,
+                                          observed_soap_xy=xy)
                 paused = panel_paused or controls.paused
                 if not paused:
                     if own:
+                        vision_tick += 1
+                        if (renderer is not None and motion.running
+                                and motion.index < 2 and vision_tick % 10 == 0):
+                            xy = observe_soap(model, data, motion, renderer, camera_id)
+                            state.publish(vision_detected=xy is not None,
+                                          observed_soap_xy=xy)
                         step(model, data, motion, qadr, vadr)
                     else:
                         mujoco.mj_step(model, data)
@@ -211,6 +266,8 @@ def main():
     except KeyboardInterrupt:
         print("Stopped.")
     finally:
+        if renderer is not None:
+            renderer.close()
         server.shutdown()
         server.server_close()
 
