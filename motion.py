@@ -1,6 +1,8 @@
-"""Deterministic scripted pick-and-place motion; not autonomous grasp planning."""
+"""Deterministic scripted pick-and-place with smooth camera-guided XY approach.
 
-from dataclasses import dataclass, replace
+This is still a kinematic demonstration, not physical grasping.
+"""
+from dataclasses import dataclass
 from math import sqrt
 
 HOME = (-0.42, -0.06, 1.16)
@@ -45,7 +47,12 @@ class Motion:
         self.phases = PHASES
         self.index = 0
         self.elapsed = 0.0
+        # The first four script phases remain in their uncorrected coordinates;
+        # a continuous visual correction is applied to their XY positions.
         self.from_position = HOME
+        self.target_offset = [0.0, 0.0]
+        self.offset = [0.0, 0.0]
+        self.offset_velocity = [0.0, 0.0]
         self.running = False
         self.finished = False
         self.holding = False
@@ -57,19 +64,29 @@ class Motion:
         self.label = PHASES[0].name
 
     def retarget_soap(self, xy: tuple[float, float]) -> None:
-        """Correct the current pick target from a new camera observation.
+        """Accept RGB-based target updates during approach/descent only.
 
-        Only the approach/descent may be retargeted; once grasping starts,
-        we must not jump to a different trajectory.
+        Unlike replacing phase endpoints mid-flight, a spring-damper correction
+        preserves position continuity between camera observations.
         """
         if not self.running or self.index > 1:
             return
-        dx, dy = xy[0] - SOAP_START[0], xy[1] - SOAP_START[1]
-        self.phases = tuple(
-            replace(p, target=(p.target[0] + dx, p.target[1] + dy, p.target[2]))
-            if i < 4 else p
-            for i, p in enumerate(PHASES)
-        )
+        self.target_offset = [xy[0] - SOAP_START[0], xy[1] - SOAP_START[1]]
+
+    def _advance_offset(self, dt: float) -> None:
+        # Critical damping, with explicit acceleration and speed limits.
+        # This keeps camera pixel noise from creating visible position jumps.
+        omega = 9.0
+        max_accel = 1.5   # m/s²
+        max_speed = 0.22  # m/s, correction only
+        for axis in range(2):
+            error = self.target_offset[axis] - self.offset[axis]
+            accel = omega * omega * error - 2 * omega * self.offset_velocity[axis]
+            accel = max(-max_accel, min(max_accel, accel))
+            velocity = self.offset_velocity[axis] + accel * dt
+            velocity = max(-max_speed, min(max_speed, velocity))
+            self.offset_velocity[axis] = velocity
+            self.offset[axis] += velocity * dt
 
     def advance(self, dt: float) -> None:
         if dt < 0:
@@ -82,22 +99,42 @@ class Motion:
             delta = min(dt, remaining)
             self.elapsed += delta
             dt -= delta
-            self.position = _lerp(self.from_position, phase.target, min(1.0, self.elapsed / phase.duration))
+
+            baseline = _lerp(
+                self.from_position, phase.target,
+                min(1.0, self.elapsed / phase.duration),
+            )
+            if self.index < 4:
+                self._advance_offset(delta)
+                self.position = (
+                    baseline[0] + self.offset[0],
+                    baseline[1] + self.offset[1],
+                    baseline[2],
+                )
+            else:
+                self.position = baseline
             self.holding = phase.holding
             self.label = phase.name
+
             if self.elapsed >= phase.duration - 1e-9:
-                self.position = phase.target
+                if self.index >= 4:
+                    # Make scripted endpoints exact (and preserve HOME equality).
+                    self.position = phase.target
                 self.index += 1
                 self.elapsed = 0.0
-                self.from_position = self.position
+                # The transport phase starts from the actual corrected grip
+                # position; before it, the baseline must not double-count XY.
+                self.from_position = (
+                    phase.target if self.index < 4 else self.position
+                )
                 if self.index == len(self.phases):
                     self.running = False
                     self.finished = True
                     self.holding = False
                     self.label = "Savon rangé"
                 else:
-                    self.label = PHASES[self.index].name
-                    self.holding = PHASES[self.index].holding
+                    self.label = self.phases[self.index].name
+                    self.holding = self.phases[self.index].holding
 
     @property
     def progress(self) -> int:

@@ -33,9 +33,13 @@ it to an alternative starting location:
     mjpython demo.py --visual-servo --soap-xy -0.21 0.09
 
 The camera renders RGB observations every 10 simulation ticks during approach
-and descent. The vision module segments the yellow soap, uses camera intrinsics
-and an assumed soap-top surface height to estimate world XY, and corrects the
-approach trajectory. The control panel's /api/status includes `vision_detected`
+and descent, and at a slower rate elsewhere. The same RGB feed is displayed
+in the local **control panel** at http://127.0.0.1:8091/ with a green crosshair
+marking the detected soap. It is also available as a single PNG at
+http://127.0.0.1:8091/api/camera.png after the renderer starts. The vision module segments the yellow soap, uses camera intrinsics
+and an assumed soap-top surface height to estimate world XY, and smoothly corrects the
+approach trajectory using a damped XY controller with bounded velocity and
+acceleration. This avoids abrupt pose jumps when the camera target changes. The control panel's /api/status includes `vision_detected`
 and `observed_soap_xy`. If the soap becomes occluded, the last target is kept.
 
 **Limitations:** Visual feedback currently corrects **XY approach only**;
@@ -62,6 +66,7 @@ The smoke test runs one scripted motion cycle and checks the resulting soap posi
 - demo.py: simulation, MuJoCo Studio WebViewer integration, local HTTP command server
 - motion.py: motion state machine and observable pick retargeting
 - vision.py: RGB soap detection and calibrated pixel-to-world projection
+- camera_preview.py: annotated PNG camera preview
 - models/bathroom.xml: scene definition
 - static/index.html: self-contained command page
 - tests/test_motion.py: unit tests for the script
