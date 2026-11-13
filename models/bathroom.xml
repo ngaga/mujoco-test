@@ -6,6 +6,8 @@
   <statistic center="-0.1 0 0.75" extent="1.5"/>
   <worldbody>
     <light pos="-1 -1 3" dir="0.4 0.4 -1" diffuse="0.9 0.9 0.9"/>
+    <!-- Overhead RGB camera: +X right, +Y up, -Z forward. -->
+    <camera name="overhead" pos="0 0 1.75" xyaxes="1 0 0 0 1 0" fovy="60"/>
     <geom name="floor" type="plane" size="3 3 0.05" rgba="0.80 0.83 0.85 1"/>
     <body name="counter" pos="0 0 0.73">
       <geom name="countertop" type="box" size="0.67 0.42 0.06" rgba="0.94 0.94 0.91 1"/>
