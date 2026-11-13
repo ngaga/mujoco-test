@@ -1,17 +1,19 @@
 """End-to-end headless WebViewer/HTTP test. No browser or GPU required."""
 
 import json
-import os
+import shutil
 import socket
 import subprocess
 import sys
 import time
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import Request, ProxyHandler, build_opener
 
 
 ROOT = Path(__file__).resolve().parents[1]
+# Always connect to the local server directly, never through a CI runner proxy.
+HTTP = build_opener(ProxyHandler({}))
 
 
 def available_port():
@@ -21,7 +23,7 @@ def available_port():
 
 
 def get_status(url):
-    with urlopen(url + "/api/status", timeout=2) as response:
+    with HTTP.open(url + "/api/status", timeout=2) as response:
         return json.load(response)
 
 
@@ -29,8 +31,11 @@ def main():
     viewer_port, controls_port = available_port(), available_port()
     if viewer_port == controls_port:
         controls_port = available_port()
+    python = shutil.which("mjpython") if sys.platform == "darwin" else sys.executable
+    if python is None:
+        raise RuntimeError("mjpython is required for the macOS simulation smoke test")
     command = [
-        sys.executable, "-u", str(ROOT / "demo.py"),
+        python, "-u", str(ROOT / "demo.py"),
         "--no-browser", "--viewer-port", str(viewer_port),
         "--controls-port", str(controls_port),
     ]
@@ -41,7 +46,8 @@ def main():
     )
     url = f"http://127.0.0.1:{controls_port}"
     try:
-        deadline = time.monotonic() + 35
+        # macOS CI runners can spend considerable time initializing Studio.
+        deadline = time.monotonic() + (120 if sys.platform == "darwin" else 45)
         while True:
             if process.poll() is not None:
                 raise AssertionError("WebViewer exited before serving requests")
@@ -59,10 +65,10 @@ def main():
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with urlopen(req, timeout=3) as response:
+        with HTTP.open(req, timeout=3) as response:
             assert response.status == 202, response.status
 
-        deadline = time.monotonic() + 35
+        deadline = time.monotonic() + 55
         max_progress = 0
         while time.monotonic() < deadline:
             if process.poll() is not None:
