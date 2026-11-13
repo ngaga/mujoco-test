@@ -11,7 +11,7 @@
 <div class="panel"><div class="item"><span>État</span><strong id="phase">Connexion…</strong></div><div class="item"><span>Savon</span><strong id="soap">…</strong></div><div class="item"><span>Simulation</span><strong id="sim">…</strong></div><progress id="progress" value="0" max="100"></progress><div class="item"><span>Progression</span><strong id="percent">0 %</strong></div></div>
 <section class="panel camera" id="cameraPanel" hidden><div class="item"><span>Caméra RGB · overhead</span><strong id="visionStatus">Initialisation…</strong></div><img id="cameraImage" alt="Vue caméra RGB du lavabo avec une croix verte sur le savon détecté"><div class="item"><span>Position estimée (m)</span><strong id="visionXY">…</strong></div><small>La croix verte indique le centre détecté du savon jaune. Ce flux est celui exploité par le contrôleur visuel, et non celui du WebViewer 3D.</small></section>
 <div class="row"><a class="viewer" id="viewer" href="http://127.0.0.1:8080/" target="_blank" rel="noopener">Ouvrir la scène 3D ↗</a></div>
-<small>Gardez les deux pages ouvertes. Le programme Python doit rester lancé. La simulation peut aussi être mise en pause depuis WebViewer.</small>
+<small>La scène 3D contient maintenant les boutons EarlyBots pour démarrer, mettre en pause ou réinitialiser, sans changer d'onglet. Cette page reste utile pour le flux caméra et le diagnostic.</small>
 </main>
 <script>
 const $=id=>document.getElementById(id);let waiting=false;let lastCameraRefresh=0;
