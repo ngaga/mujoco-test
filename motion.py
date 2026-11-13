@@ -117,6 +117,9 @@ class Motion:
             self.label = phase.name
 
             if self.elapsed >= phase.duration - 1e-9:
+                if self.index >= 4:
+                    # Make scripted endpoints exact (and preserve HOME equality).
+                    self.position = phase.target
                 self.index += 1
                 self.elapsed = 0.0
                 # The transport phase starts from the actual corrected grip
