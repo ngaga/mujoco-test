@@ -37,7 +37,7 @@ jobs:
         run: python -m pip install -r requirements.txt
 
       - name: Check Python syntax
-        run: python -m compileall -q demo.py motion.py vision.py camera_preview.py tests
+        run: python -m compileall -q demo.py motion.py vision.py camera_preview.py viewer_controls.py tests
 
       - name: Run unit and regression tests
         run: python -m unittest discover -s tests -v
