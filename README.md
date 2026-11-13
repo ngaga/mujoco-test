@@ -38,3 +38,20 @@ The smoke test runs one scripted motion cycle and checks the resulting soap posi
 - tests/test_motion.py: unit tests for the script
 
 MuJoCo WebViewer uses unauthenticated HTTP and WebSocket connections and may listen on the local network. Only run this development demo on trusted networks; do not expose the port publicly.
+
+## Pull requests and CI
+
+All future changes should go to a feature branch and an **open PR**, not directly to `main`.
+
+The workflow `.github/workflows/ci.yml` runs on every PR targeting `main` and every push to `main`. It checks **Ubuntu x64** and **macOS 15 on Apple Silicon** using Python 3.12:
+
+1. Python syntax and the unit/regression tests
+2. Compilation of the real MuJoCo MJCF file (`--check-model`)
+3. A full physics cycle (`--smoke-test`)
+4. Startup of the headless WebViewer and a real HTTP request to run the scripted movement
+
+The end-to-end test catches failures in the server/viewer simulation loop, rather than only testing the standalone `motion.py`.
+
+**Protect `main` on GitHub:** Repository Settings → Branches → Add branch protection rule (or Settings → Rules → Rulesets). Pattern: `main`. Enable **Require a pull request before merging** and **Require status checks to pass before merging**. After the first CI run registers the check names, select both `MuJoCo smoke (ubuntu-24.04)` and `MuJoCo smoke (macos-15)`. Do not add the connector to the bypass list.
+
+GitHub Actions does not replace a real visual review on the Mac. In particular, the tests do not validate the browser's 3D rendering or robotic safety.
