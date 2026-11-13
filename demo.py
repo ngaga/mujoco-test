@@ -98,15 +98,23 @@ def soap_in_tray(data, adr, holding):
     return bool(not holding and 0.075 < x < 0.445 and -0.12 < y < 0.22 and 0.82 < z < 0.92)
 
 
+def soap_joint_addresses(model):
+    """Return scalar qpos and dof offsets, not the named-joint NumPy arrays."""
+    joint_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "soap_free")
+    if joint_id == -1:
+        raise ValueError("The soap_free joint was not found")
+    return int(model.jnt_qposadr[joint_id]), int(model.jnt_dofadr[joint_id])
+
+
 def smoke_test(model):
     data = mujoco.MjData(model)
     motion = Motion()
-    joint = model.joint("soap_free")
+    qadr, vadr = soap_joint_addresses(model)
     reset(model, data, motion)
     motion.start()
     for _ in range(1500):
-        step(model, data, motion, joint.qposadr, joint.dofadr)
-    if not motion.finished or not soap_in_tray(data, joint.qposadr, motion.holding):
+        step(model, data, motion, qadr, vadr)
+    if not motion.finished or not soap_in_tray(data, qadr, motion.holding):
         raise RuntimeError("Smoke test: soap not in tray")
     print("OK: scripted action ended, soap is in tray.")
 
@@ -146,8 +154,7 @@ def main():
     original_model = model
     data = mujoco.MjData(model)
     motion = Motion()
-    joint = model.joint("soap_free")
-    qadr, vadr = joint.qposadr, joint.dofadr
+    qadr, vadr = soap_joint_addresses(model)
     reset(model, data, motion)
     state = State(args.viewer_port)
     try:
