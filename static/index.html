@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="fr">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>EarlyBots · Bathroom Demo</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,-apple-system,sans-serif}*{box-sizing:border-box}body{margin:0;min-height:100vh;background:#0d131b;color:#edf3f5;display:grid;place-items:center}main{width:min(95vw,660px);padding:36px;background:#17212c;border:1px solid #2c3e4a;border-radius:18px}h1{font-size:24px;margin:0 0 4px}p{color:#aabac5;line-height:1.5}.row{display:flex;gap:10px;flex-wrap:wrap;margin:24px 0}button,a.viewer{font:inherit;border:0;padding:13px 18px;border-radius:10px;font-weight:650;cursor:pointer;text-decoration:none}button.primary{background:#66daca;color:#092126}button.secondary,a.viewer{background:#293c48;color:#e5f3f5}button:hover,a.viewer:hover{filter:brightness(1.12)}.panel{background:#101a22;border:1px solid #2b3b46;border-radius:12px;padding:18px}.item{display:flex;justify-content:space-between;gap:15px;margin:8px 0}.item span:first-child{color:#a5b7bf}progress{width:100%;height:16px;accent-color:#66daca;margin:14px 0 2px}small{color:#9daebb;line-height:1.6;display:block;margin-top:16px}
+</style></head>
+<body><main>
+<h1>◈ EarlyBots · Bathroom Demo</h1><p>MuJoCo 4 / WebViewer · V1</p>
+<p>Démo cinématique scriptée : le robot déplace un savon vers le bac d'articles de toilette. Ce n'est pas une préhension autonome.</p>
+<div class="row"><button class="primary" id="start">▶ Ranger le savon</button><button class="secondary" id="pause">⏸ Pause</button><button class="secondary" id="reset">↺ Réinitialiser</button></div>
+<div class="panel"><div class="item"><span>État</span><strong id="phase">Connexion…</strong></div><div class="item"><span>Savon</span><strong id="soap">…</strong></div><div class="item"><span>Simulation</span><strong id="sim">…</strong></div><progress id="progress" value="0" max="100"></progress><div class="item"><span>Progression</span><strong id="percent">0 %</strong></div></div>
+<div class="row"><a class="viewer" id="viewer" href="http://127.0.0.1:8080/" target="_blank" rel="noopener">Ouvrir la scène 3D ↗</a></div>
+<small>Gardez les deux pages ouvertes. Le programme Python doit rester lancé. La simulation peut aussi être mise en pause depuis WebViewer.</small>
+</main>
+<script>
+const $=id=>document.getElementById(id);let waiting=false;
+async function command(action){if(waiting)return;waiting=true;try{const r=await fetch('/api/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})});if(!r.ok)throw new Error('HTTP '+r.status);await refresh()}catch(e){$('phase').textContent='Erreur : '+e.message}finally{waiting=false}}
+$('start').onclick=()=>command('start');$('pause').onclick=()=>command('pause');$('reset').onclick=()=>command('reset');
+async function refresh(){try{const r=await fetch('/api/status',{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status);const s=await r.json();$('phase').textContent=s.phase;$('soap').textContent=s.soap_in_tray?'Dans le bac ✓':s.holding?'En transport':'Sur le plan de travail';$('sim').textContent=s.paused?'En pause':s.running?'En mouvement':'Active';$('pause').textContent=s.paused?'▶ Reprendre':'⏸ Pause';$('progress').value=s.progress;$('percent').textContent=s.progress+' %';$('viewer').href=s.viewer_url}catch(_){$('phase').textContent='Serveur indisponible'}}
+setInterval(refresh,300);refresh();
+</script></body></html>
