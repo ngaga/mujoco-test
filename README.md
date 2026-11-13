@@ -2,7 +2,7 @@
 
 First interactive hotel-bathroom restocking demo using **MuJoCo 4 WebViewer**.
 
-A soap bar starts outside a hotel amenities tray containing a toothbrush and toothpaste. Click **Ranger le savon** to start a scripted pick-and-place sequence. The gripper and soap move in the 3D viewer; reset and pause are available from a local control page.
+A soap bar starts outside a hotel amenities tray containing a toothbrush and toothpaste. Click **Ranger le savon** to start a scripted pick-and-place sequence. The gripper and soap move in the 3D viewer; reset and pause are available from a local control page. An optional RGB visual servo now corrects the approach in XY while preserving the default scripted demo.
 
 **Important:** This prototype uses a scripted trajectory and kinematic object attachment. It does **not** yet implement autonomous grasping, robot arm dynamics, visual perception, or any safety-critical control.
 
@@ -21,6 +21,34 @@ Open the **3D viewer** at http://127.0.0.1:8080/ and the **control panel** at ht
 
 To update, run git pull, then source .venv/bin/activate and mjpython demo.py. Quit with Ctrl+C.
 
+## Optional RGB visual-servo experiment
+
+Run with an overhead MuJoCo camera and a yellow-soap detector:
+
+    mjpython demo.py --visual-servo
+
+To prove the grasp approach is **not** memorizing the soap's initial XY, move
+it to an alternative starting location:
+
+    mjpython demo.py --visual-servo --soap-xy -0.21 0.09
+
+The camera renders RGB observations every 10 simulation ticks during approach
+and descent. The vision module segments the yellow soap, uses camera intrinsics
+and an assumed soap-top surface height to estimate world XY, and corrects the
+approach trajectory. The control panel's /api/status includes `vision_detected`
+and `observed_soap_xy`. If the soap becomes occluded, the last target is kept.
+
+**Limitations:** Visual feedback currently corrects **XY approach only**;
+it does not solve grasp physics. The gripper is still a mocap body and holding
+still imposes the soap position kinematically. Transport and release are
+scripted. There is no visual confirmation of a successful grip or placement.
+The yellow color threshold and calibrated surface height are task-specific.
+The offscreen OpenGL renderer may require platform-specific setup, and should
+be checked on a real Mac before relying on it. Run without `--visual-servo` to
+keep the original working demo.
+
+This is an incremental perception/servo prototype, **not autonomous grasping**.
+
 ## Diagnostics
 
     python -m unittest discover -s tests -v
@@ -32,7 +60,8 @@ The smoke test runs one scripted motion cycle and checks the resulting soap posi
 ## Files
 
 - demo.py: simulation, MuJoCo Studio WebViewer integration, local HTTP command server
-- motion.py: motion state machine
+- motion.py: motion state machine and observable pick retargeting
+- vision.py: RGB soap detection and calibrated pixel-to-world projection
 - models/bathroom.xml: scene definition
 - static/index.html: self-contained command page
 - tests/test_motion.py: unit tests for the script
@@ -45,7 +74,7 @@ All future changes should go to a feature branch and an **open PR**, not directl
 
 The workflow `.github/workflows/ci.yml` runs on every PR targeting `main` and every push to `main`. It checks **Ubuntu x64** and **macOS 15 on Apple Silicon** using Python 3.12:
 
-1. Python syntax and the unit/regression tests
+1. Python syntax and the unit/regression tests (including synthetic RGB vision)
 2. Compilation of the real MuJoCo MJCF file (`--check-model`)
 3. A full physics cycle (`--smoke-test`)
 4. Startup of the headless WebViewer and a real HTTP request to run the scripted movement
