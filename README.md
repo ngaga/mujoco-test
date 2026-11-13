@@ -6,9 +6,29 @@ A soap bar starts outside a hotel amenities tray containing a toothbrush and too
 
 **Important:** This prototype uses a scripted trajectory and kinematic object attachment. It does **not** yet implement autonomous grasping, robot arm dynamics, visual perception, or any safety-critical control.
 
+## Single-tab robot workspace (recommended)
+
+Run `mjpython demo.py --visual-servo --soap-xy -0.21 0.09`.
+The browser now opens **http://127.0.0.1:8091/**, which includes:
+
+- The live MuJoCo Studio 3D WebViewer embedded in the main work area.
+- Always-visible **Run / Restart**, **Pause / Resume**, and **Reset** buttons above it.
+- The camera RGB preview, detection status, and progress in a side panel.
+
+You no longer need to switch tabs to restart the scripted sequence. The 3D
+WebViewer at http://127.0.0.1:8080/ remains accessible in a separate tab.
+If the embedded viewer is in spectator mode, close the old standalone 8080
+viewer or use its role indicator to transfer control.
+
+The combined page is a local convenience wrapper around Studio's WebViewer,
+not a replacement for Studio's built-in simulation toolbar. It embeds the
+viewer as an iframe and may need a normal browser (not a restricted embedded
+browser). If a browser refuses the iframe, use the **Open Studio separately**
+link and the 8091 controls until the embedding issue is resolved.
+
 ## Control the robot directly from the 3D viewer
 
-The 3D viewer at **http://127.0.0.1:8080/** now includes a floating
+The standalone 3D viewer at **http://127.0.0.1:8080/** can include a floating
 **EarlyBots | Robot commands** panel, with **Run / Restart**, **Reset**,
 and **Pause / Resume**. These are the controls for our scripted soap
 pick-and-place, and they work without switching to another tab.
@@ -22,7 +42,7 @@ If the panel is hidden, restore it via Studio's normal window layout controls.
 
 The alternative control panel at **http://127.0.0.1:8091/** remains available
 for the annotated RGB camera feed and diagnostics. Starting `mjpython demo.py`
-now opens the 3D viewer by default, rather than opening that second panel.
+opens the unified workspace on 8091 by default.
 
 ## macOS quick start
 
@@ -35,7 +55,7 @@ Then in the mujoco-test directory, run:
     python -m pip install -r requirements.txt
     mjpython demo.py
 
-Open the **3D viewer** at http://127.0.0.1:8080/ (opens automatically). In the **EarlyBots | Robot commands** panel, click **Run / Restart** and watch the soap move into the tray. The extra control panel at http://127.0.0.1:8091/ is optional.
+Open the **unified workspace** at http://127.0.0.1:8091/ (opens automatically), which embeds the 3D scene and the Run / Restart buttons in one page. The standalone 3D viewer at http://127.0.0.1:8080/ remains available.
 
 To update, run git pull, then source .venv/bin/activate and mjpython demo.py. Quit with Ctrl+C.
 
