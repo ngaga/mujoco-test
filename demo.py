@@ -240,7 +240,7 @@ def main():
     try:
         with launch_web.launch(cfg, plugins=[studio_app.App(), controls, embedded_controls]) as viewer:
             if not args.no_browser:
-                webbrowser.open(f"http://127.0.0.1:{args.controls_port}/")
+                webbrowser.open(f"http://127.0.0.1:{args.viewer_port}/")
             while viewer.is_running():
                 tick = time.perf_counter()
                 model, data = viewer.sync(model, data)
