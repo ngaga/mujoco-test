@@ -2,7 +2,7 @@
   <compiler angle="radian"/>
   <option timestep="0.01" gravity="0 0 -9.81" integrator="implicitfast"/>
   <default><geom condim="3" friction="0.9 0.08 0.03"/></default>
-  <visual><global azimuth="135" elevation="-24" distance="2.5"/></visual>
+  <visual><global azimuth="135" elevation="-24"/></visual>
   <statistic center="-0.1 0 0.75" extent="1.5"/>
   <worldbody>
     <light pos="-1 -1 3" dir="0.4 0.4 -1" diffuse="0.9 0.9 0.9"/>
