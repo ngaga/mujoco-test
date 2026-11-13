@@ -1,6 +1,6 @@
 """Deterministic scripted pick-and-place motion; not autonomous grasp planning."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from math import sqrt
 
 HOME = (-0.42, -0.06, 1.16)
@@ -42,6 +42,7 @@ class Motion:
 
     def reset(self) -> None:
         self.position = HOME
+        self.phases = PHASES
         self.index = 0
         self.elapsed = 0.0
         self.from_position = HOME
@@ -55,13 +56,28 @@ class Motion:
         self.running = True
         self.label = PHASES[0].name
 
+    def retarget_soap(self, xy: tuple[float, float]) -> None:
+        """Correct the current pick target from a new camera observation.
+
+        Only the approach/descent may be retargeted; once grasping starts,
+        we must not jump to a different trajectory.
+        """
+        if not self.running or self.index > 1:
+            return
+        dx, dy = xy[0] - SOAP_START[0], xy[1] - SOAP_START[1]
+        self.phases = tuple(
+            replace(p, target=(p.target[0] + dx, p.target[1] + dy, p.target[2]))
+            if i < 4 else p
+            for i, p in enumerate(PHASES)
+        )
+
     def advance(self, dt: float) -> None:
         if dt < 0:
             raise ValueError("dt must be nonnegative")
         if not self.running:
             return
         while dt > 0 and self.running:
-            phase = PHASES[self.index]
+            phase = self.phases[self.index]
             remaining = max(0.0, phase.duration - self.elapsed)
             delta = min(dt, remaining)
             self.elapsed += delta
@@ -74,7 +90,7 @@ class Motion:
                 self.index += 1
                 self.elapsed = 0.0
                 self.from_position = self.position
-                if self.index == len(PHASES):
+                if self.index == len(self.phases):
                     self.running = False
                     self.finished = True
                     self.holding = False
@@ -89,8 +105,8 @@ class Motion:
             return 100
         if not self.running:
             return 0
-        duration = sum(p.duration for p in PHASES)
-        completed = sum(p.duration for p in PHASES[: self.index])
+        duration = sum(p.duration for p in self.phases)
+        completed = sum(p.duration for p in self.phases[: self.index])
         return min(99, round(100 * (completed + self.elapsed) / duration))
 
     @property
