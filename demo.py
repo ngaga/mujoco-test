@@ -12,6 +12,7 @@ import mujoco
 from motion import HOME, Motion, SOAP_OFFSET
 from vision import soap_centroid, pixel_on_plane
 from camera_preview import rgb_png
+from viewer_controls import EarlyBotsViewerControls
 
 ROOT = Path(__file__).resolve().parent
 
@@ -228,16 +229,18 @@ def main():
         parser.error(f"Cannot start command server on port {args.controls_port}: {exc}")
     threading.Thread(target=server.serve_forever, daemon=True).start()
     controls = ViewerControls()
+    embedded_controls = EarlyBotsViewerControls(state)
     cfg = viewer_protocol.ViewerConfig(title="EarlyBots | Bathroom Demo", http_port=args.viewer_port)
     print(f"WebViewer 3D: http://127.0.0.1:{args.viewer_port}/")
     print(f"Control panel: http://127.0.0.1:{args.controls_port}/")
     print("Ctrl+C to stop. Demo uses a scripted grasp, not an autonomous one.")
+    print("Use the EarlyBots | Robot commands panel INSIDE the 3D WebViewer for Run/Restart/Reset/Pause.")
     panel_paused = False
     vision_tick = 0
     try:
-        with launch_web.launch(cfg, plugins=[studio_app.App(), controls]) as viewer:
+        with launch_web.launch(cfg, plugins=[studio_app.App(), controls, embedded_controls]) as viewer:
             if not args.no_browser:
-                webbrowser.open(f"http://127.0.0.1:{args.controls_port}/")
+                webbrowser.open(f"http://127.0.0.1:{args.viewer_port}/")
             while viewer.is_running():
                 tick = time.perf_counter()
                 model, data = viewer.sync(model, data)
@@ -256,10 +259,12 @@ def main():
                         set_initial_soap(model, data, qadr, args.soap_xy)
                         state.publish(vision_detected=False, observed_soap_xy=None)
                         panel_paused = False
+                        controls.paused = False
                     elif own and cmd == "start":
                         reset(model, data, motion)
                         set_initial_soap(model, data, qadr, args.soap_xy)
                         panel_paused = False
+                        controls.paused = False
                         vision_tick = 0
                         motion.start()
                         if renderer is not None:
