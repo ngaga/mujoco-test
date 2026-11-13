@@ -241,6 +241,11 @@ def main():
                             xy = observe_soap(model, data, motion, renderer, camera_id)
                             state.publish(vision_detected=xy is not None,
                                           observed_soap_xy=xy)
+                            if xy is None:
+                                # Do not silently run the hard-coded pick when
+                                # visual-servo mode cannot see the soap.
+                                motion.reset()
+                                motion.label = "Savon non détecté : mouvement annulé"
                 paused = panel_paused or controls.paused
                 if not paused:
                     if own:
