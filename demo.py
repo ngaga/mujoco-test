@@ -10,7 +10,8 @@ from pathlib import Path
 
 import mujoco
 from motion import HOME, Motion, SOAP_OFFSET
-from vision import estimate_soap_xy
+from vision import soap_centroid, pixel_on_plane
+from camera_preview import rgb_png
 
 ROOT = Path(__file__).resolve().parent
 
@@ -21,10 +22,11 @@ class State:
     def __init__(self, port):
         self.lock = threading.Lock()
         self.commands = queue.Queue()
+        self.camera_png = None
         self.snapshot = dict(
             phase="Prêt", running=False, holding=False, paused=False,
             progress=0, soap_in_tray=False, vision_enabled=False,
-            vision_detected=False, observed_soap_xy=None,
+            vision_detected=False, observed_soap_xy=None, camera_ready=False,
             viewer_url=f"http://127.0.0.1:{port}/"
         )
 
@@ -35,6 +37,15 @@ class State:
     def publish(self, **kwargs):
         with self.lock:
             self.snapshot.update(kwargs)
+
+    def publish_camera(self, png):
+        with self.lock:
+            self.camera_png = png
+            self.snapshot['camera_ready'] = True
+
+    def read_camera(self):
+        with self.lock:
+            return self.camera_png
 
 
 def handler_factory(state):
@@ -52,6 +63,12 @@ def handler_factory(state):
                 self.respond(200, (ROOT / "static" / "index.html").read_bytes(), "text/html; charset=utf-8")
             elif self.path == "/api/status":
                 self.respond(200, json.dumps(state.read()).encode(), "application/json")
+            elif self.path.startswith("/api/camera.png"):
+                png = state.read_camera()
+                if png is None:
+                    self.respond(503, b"Camera not ready", "text/plain")
+                else:
+                    self.respond(200, png, "image/png")
             else:
                 self.respond(404, b"Not found", "text/plain")
 
@@ -92,17 +109,25 @@ def set_initial_soap(model, data, qadr, soap_xy):
         mujoco.mj_forward(model, data)
 
 
-def observe_soap(model, data, motion, renderer, camera_id):
-    """Render the overhead RGB camera and correct the ongoing pick target."""
+def observe_soap(model, data, motion, renderer, camera_id, state):
+    """Render, publish the annotated RGB image, and optionally update XY."""
     renderer.update_scene(data, camera="overhead")
     image = renderer.render()
+    pixel = soap_centroid(image)
+    # Annotate a copy only after detection; the algorithm uses raw pixels.
+    state.publish_camera(rgb_png(image, pixel))
+    if pixel is None:
+        return None
     # Approximate yellow soap top surface: initial center z + ellipsoid radius.
-    xy = estimate_soap_xy(
-        image, data.cam_xpos[camera_id], data.cam_xmat[camera_id],
-        float(model.cam_fovy[camera_id]), plane_z=0.866,
+    xy = pixel_on_plane(
+        pixel, image.shape, data.cam_xpos[camera_id],
+        data.cam_xmat[camera_id], float(model.cam_fovy[camera_id]),
+        plane_z=0.866,
     )
-    if xy is not None and -0.6 < xy[0] < -0.08 and -0.32 < xy[1] < 0.32:
-        motion.retarget_soap(xy)
+    if xy is not None and -0.6 < xy[0] < 0.6 and -0.32 < xy[1] < 0.32:
+        # Do not chase the soap after simulated grasping has started.
+        if -0.6 < xy[0] < -0.08:
+            motion.retarget_soap(xy)
         return xy
     return None
 
@@ -238,7 +263,7 @@ def main():
                         vision_tick = 0
                         motion.start()
                         if renderer is not None:
-                            xy = observe_soap(model, data, motion, renderer, camera_id)
+                            xy = observe_soap(model, data, motion, renderer, camera_id, state)
                             state.publish(vision_detected=xy is not None,
                                           observed_soap_xy=xy)
                             if xy is None:
@@ -250,9 +275,9 @@ def main():
                 if not paused:
                     if own:
                         vision_tick += 1
-                        if (renderer is not None and motion.running
-                                and motion.index < 2 and vision_tick % 10 == 0):
-                            xy = observe_soap(model, data, motion, renderer, camera_id)
+                        if (renderer is not None and vision_tick %
+                                (10 if motion.running and motion.index < 2 else 20) == 0):
+                            xy = observe_soap(model, data, motion, renderer, camera_id, state)
                             state.publish(vision_detected=xy is not None,
                                           observed_soap_xy=xy)
                         step(model, data, motion, qadr, vadr)
