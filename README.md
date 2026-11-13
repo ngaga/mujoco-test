@@ -6,6 +6,24 @@ A soap bar starts outside a hotel amenities tray containing a toothbrush and too
 
 **Important:** This prototype uses a scripted trajectory and kinematic object attachment. It does **not** yet implement autonomous grasping, robot arm dynamics, visual perception, or any safety-critical control.
 
+## Control the robot directly from the 3D viewer
+
+The 3D viewer at **http://127.0.0.1:8080/** now includes a floating
+**EarlyBots | Robot commands** panel, with **Run / Restart**, **Reset**,
+and **Pause / Resume**. These are the controls for our scripted soap
+pick-and-place, and they work without switching to another tab.
+Use **Run / Restart** to restart the whole sequence from its initial state,
+**Reset** to return the robot and soap to their start positions, and
+**Pause** to stop or resume.
+
+Studio's **own** Run/Reset toolbar is a separate built-in simulation feature
+and does not manage our custom sequence. Use the *EarlyBots* panel instead.
+If the panel is hidden, restore it via Studio's normal window layout controls.
+
+The alternative control panel at **http://127.0.0.1:8091/** remains available
+for the annotated RGB camera feed and diagnostics. Starting `mjpython demo.py`
+now opens the 3D viewer by default, rather than opening that second panel.
+
 ## macOS quick start
 
 Clone the repository with: git clone git@github.com:ngaga/mujoco-test.git
@@ -17,7 +35,7 @@ Then in the mujoco-test directory, run:
     python -m pip install -r requirements.txt
     mjpython demo.py
 
-Open the **3D viewer** at http://127.0.0.1:8080/ and the **control panel** at http://127.0.0.1:8091/ (the latter should open automatically). Click **Ranger le savon** and watch it move into the tray.
+Open the **3D viewer** at http://127.0.0.1:8080/ (opens automatically). In the **EarlyBots | Robot commands** panel, click **Run / Restart** and watch the soap move into the tray. The extra control panel at http://127.0.0.1:8091/ is optional.
 
 To update, run git pull, then source .venv/bin/activate and mjpython demo.py. Quit with Ctrl+C.
 
@@ -67,6 +85,7 @@ The smoke test runs one scripted motion cycle and checks the resulting soap posi
 - motion.py: motion state machine and observable pick retargeting
 - vision.py: RGB soap detection and calibrated pixel-to-world projection
 - camera_preview.py: annotated PNG camera preview
+- viewer_controls.py: custom Run / Restart, Reset and Pause/Resume buttons embedded in Studio
 - models/bathroom.xml: scene definition
 - static/index.html: self-contained command page
 - tests/test_motion.py: unit tests for the script
