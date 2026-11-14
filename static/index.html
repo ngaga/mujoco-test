@@ -72,6 +72,8 @@ progress{width:100%;height:12px;accent-color:#6fdac8}
       <h2>État de la simulation</h2>
       <div class="item"><span>Savon</span><strong id="soap">…</strong></div>
       <div class="item"><span>Simulation</span><strong id="sim">…</strong></div>
+      <div class="item"><span>Préhension</span><strong id="graspMode">…</strong></div>
+      <div class="item"><span>Contacts doigts</span><strong id="fingerContacts">…</strong></div>
       <progress id="progress" value="0" max="100"></progress>
       <div class="item"><span>Progression</span><strong id="percent">0 %</strong></div>
       <p class="hint">Les boutons Run / Reset natifs de Studio ne contrôlent pas notre script de préhension. Ceux de la barre du haut, oui.</p>
@@ -116,6 +118,8 @@ async function refresh(){
     $("phase").textContent=s.phase;
     $("soap").textContent=s.soap_in_tray?"Dans le bac ✓":s.holding?"En transport":"Sur le plan de travail";
     $("sim").textContent=s.paused?"En pause":s.running?"En mouvement":"Prête";
+    $("graspMode").textContent=s.physical_grasp?"Physique (MuJoCo)":"Saisie simulée";
+    $("fingerContacts").textContent=s.physical_grasp?((s.contact_left?"G ✓":"G ·")+" / "+(s.contact_right?"D ✓":"D ·")):"Non applicable";
     $("pause").textContent=s.paused?"▶ Reprendre":"⏸ Pause";
     $("progress").value=s.progress;
     $("percent").textContent=s.progress+" %";
