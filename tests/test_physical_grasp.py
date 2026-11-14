@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 import mujoco
+import physical_grasp
 
 from physical_grasp import (ContactMonitor, PhysicalMotion, JAW_CLOSED,
                             JAW_OPEN, run_contact_smoke, step_physical)
@@ -29,6 +30,18 @@ class PhysicalGraspTests(unittest.TestCase):
         self.assertNotEqual(monitor.left, monitor.right)
         j = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "soap_free")
         self.assertEqual(model.jnt_type[j], mujoco.mjtJoint.mjJNT_FREE)
+
+    def test_open_jaws_cannot_pick_up_soap(self):
+        # Counterfactual regression: with actuators held open, the *same*
+        # scripted palm motion must not teleport the object into the tray.
+        previous = physical_grasp.JAW_CLOSED
+        physical_grasp.JAW_CLOSED = physical_grasp.JAW_OPEN
+        try:
+            metrics = run_contact_smoke(self.model, strict=False)
+        finally:
+            physical_grasp.JAW_CLOSED = previous
+        self.assertFalse(metrics["in_tray"])
+        self.assertLess(metrics["highest_z"], 0.86)
 
     def test_jaws_actuate_without_moving_soap_by_assignment(self):
         model = self.model
