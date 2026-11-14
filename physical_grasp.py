@@ -93,10 +93,21 @@ def run_contact_smoke(model, iterations=1500):
         step_physical(model, data, motion)
         z = float(data.qpos[qadr + 2])
         if tick % 50 == 0 and len(diagnostics) < 25:
+            pad_z = (round(float(data.geom_xpos[monitor.left][2]), 3),
+                     round(float(data.geom_xpos[monitor.right][2]), 3))
+            forces = []
+            for ci in range(data.ncon):
+                c = data.contact[ci]
+                if monitor.soap in (int(c.geom1), int(c.geom2)):
+                    wrench = [0.0] * 6
+                    mujoco.mj_contactForce(model, data, ci, wrench)
+                    forces.append((int(c.geom1), int(c.geom2),
+                                   round(float(wrench[0]), 1),
+                                   round(float(wrench[1]), 1)))
             diagnostics.append((tick, motion.index, round(motion.position[2], 3),
-                                round(z, 3), tuple(round(float(v), 3) for v in data.qpos[qadr:qadr+2]),
+                                round(z, 3), pad_z,
                                 tuple(round(float(v), 3) for v in data.qpos[qadr+7:qadr+9]),
-                                tuple(monitor.contacts(data))))
+                                tuple(monitor.contacts(data)), forces[:3]))
         if not 0.0 <= z <= 2.0:
             raise RuntimeError(f"Soap diverged in physics: z={z}")
         highest = max(highest, z)
