@@ -69,7 +69,7 @@ def step_physical(model, data, motion):
     mujoco.mj_step(model, data)
 
 
-def run_contact_smoke(model, iterations=1500, strict=True):
+def run_contact_smoke(model, iterations=6500, strict=True):
     """Verify pickup and free release: real lift, bilateral contact, final drop.
 
     This can fail on a physics regression, even when the old scripted smoke
@@ -96,7 +96,7 @@ def run_contact_smoke(model, iterations=1500, strict=True):
     for tick in range(iterations):
         step_physical(model, data, motion)
         z = float(data.qpos[qadr + 2])
-        if tick % 50 == 0 and len(diagnostics) < 25:
+        if tick % 250 == 0 and len(diagnostics) < 32:
             pad_z = (round(float(data.geom_xpos[monitor.left][2]), 3),
                      round(float(data.geom_xpos[monitor.right][2]), 3))
             forces = []
