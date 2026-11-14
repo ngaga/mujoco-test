@@ -45,6 +45,16 @@ class ControlPanelTests(unittest.TestCase):
             with urlopen(origin + "/api/status", timeout=3) as resp:
                 status = json.load(resp)
             self.assertEqual(status["phase"], "Prêt")
+            with urlopen(origin + "/", timeout=3) as resp:
+                html = resp.read().decode("utf-8")
+                self.assertIn("text/html", resp.headers.get("Content-Type", ""))
+            # The actual served page, not a separate mock, must contain the
+            # Studio frame and commands on a single workspace.
+            self.assertIn('id="studio"', html)
+            self.assertIn('src="http://127.0.0.1:8080/"', html)
+            for button in ('id="start"', 'id="reset"', 'id="pause"'):
+                self.assertIn(button, html)
+            self.assertIn('id="cameraPanel"', html)
             req = Request(origin + "/api/command", data=b'{"action":"start"}', method="POST", headers={"Content-Type": "application/json"})
             with urlopen(req, timeout=3) as resp:
                 self.assertEqual(resp.status, 202)

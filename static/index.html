@@ -1,31 +1,143 @@
 <!doctype html>
 <html lang="fr">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>EarlyBots · Bathroom Demo</title>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EarlyBots · Robot Workspace</title>
 <style>
-:root{color-scheme:dark;font-family:system-ui,-apple-system,sans-serif}*{box-sizing:border-box}body{margin:0;min-height:100vh;background:#0d131b;color:#edf3f5;display:grid;place-items:center}main{width:min(95vw,740px);padding:36px;background:#17212c;border:1px solid #2c3e4a;border-radius:18px}h1{font-size:24px;margin:0 0 4px}p{color:#aabac5;line-height:1.5}.row{display:flex;gap:10px;flex-wrap:wrap;margin:24px 0}button,a.viewer{font:inherit;border:0;padding:13px 18px;border-radius:10px;font-weight:650;cursor:pointer;text-decoration:none}button.primary{background:#66daca;color:#092126}button.secondary,a.viewer{background:#293c48;color:#e5f3f5}button:hover,a.viewer:hover{filter:brightness(1.12)}.panel{background:#101a22;border:1px solid #2b3b46;border-radius:12px;padding:18px}.item{display:flex;justify-content:space-between;gap:15px;margin:8px 0}.item span:first-child{color:#a5b7bf}progress{width:100%;height:16px;accent-color:#66daca;margin:14px 0 2px}small{color:#9daebb;line-height:1.6;display:block;margin-top:16px}.camera{margin-top:16px}.camera[hidden]{display:none}.camera img{display:block;width:100%;height:auto;aspect-ratio:4/3;object-fit:contain;border-radius:8px;background:#090f14;border:1px solid #33434c}.camera strong{color:#76d6c8}#visionXY{font-variant-numeric:tabular-nums}
-</style></head>
-<body><main>
-<h1>◈ EarlyBots · Bathroom Demo</h1><p>MuJoCo 4 / WebViewer · V1</p>
-<p>Démo cinématique scriptée : le robot déplace un savon vers le bac d'articles de toilette. Ce n'est pas une préhension autonome.</p>
-<div class="row"><button class="primary" id="start">▶ Ranger le savon</button><button class="secondary" id="pause">⏸ Pause</button><button class="secondary" id="reset">↺ Réinitialiser</button></div>
-<div class="panel"><div class="item"><span>État</span><strong id="phase">Connexion…</strong></div><div class="item"><span>Savon</span><strong id="soap">…</strong></div><div class="item"><span>Simulation</span><strong id="sim">…</strong></div><progress id="progress" value="0" max="100"></progress><div class="item"><span>Progression</span><strong id="percent">0 %</strong></div></div>
-<section class="panel camera" id="cameraPanel" hidden><div class="item"><span>Caméra RGB · overhead</span><strong id="visionStatus">Initialisation…</strong></div><img id="cameraImage" alt="Vue caméra RGB du lavabo avec une croix verte sur le savon détecté"><div class="item"><span>Position estimée (m)</span><strong id="visionXY">…</strong></div><small>La croix verte indique le centre détecté du savon jaune. Ce flux est celui exploité par le contrôleur visuel, et non celui du WebViewer 3D.</small></section>
-<div class="row"><a class="viewer" id="viewer" href="http://127.0.0.1:8080/" target="_blank" rel="noopener">Ouvrir la scène 3D ↗</a></div>
-<small>La scène 3D contient maintenant les boutons EarlyBots pour démarrer, mettre en pause ou réinitialiser, sans changer d'onglet. Cette page reste utile pour le flux caméra et le diagnostic.</small>
+:root{color-scheme:dark;font-family:system-ui,-apple-system,sans-serif;background:#0d141b;color:#eaf0f4}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh}
+button,a{font:inherit}
+.toolbar{display:flex;align-items:center;gap:16px;padding:12px 18px;background:#192630;border-bottom:1px solid #30414c;flex-wrap:wrap}
+.brand{display:grid;gap:1px;margin-right:auto}
+.brand strong{font-size:16px;letter-spacing:.015em}
+.brand small{font-size:12px;color:#a6b6c0}
+.actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+button{border:none;border-radius:8px;padding:10px 14px;color:#ecf4f7;background:#334450;cursor:pointer;font-weight:600}
+button:hover{filter:brightness(1.13)}
+button:focus-visible,a:focus-visible{outline:3px solid #8ee3d7;outline-offset:2px}
+button.primary{background:#6fdac8;color:#06292c}
+button:disabled{opacity:.55;cursor:wait}
+a{color:#8ee2d5}
+.status{font-size:13px;color:#b8c6cd}
+.status strong{color:#e5f2f5}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 300px;min-height:calc(100vh - 73px)}
+.viewer{min-width:0;display:flex;flex-direction:column;background:#090d11}
+.viewer iframe{display:block;width:100%;height:calc(100vh - 132px);min-height:440px;border:0;background:#070b0e}
+.viewerbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 16px;background:#16232d;color:#b6c6cf;font-size:13px;flex-wrap:wrap}
+aside{padding:16px;background:#14202a;border-left:1px solid #30414c;display:flex;flex-direction:column;gap:13px}
+section{background:#0e1821;border:1px solid #30414c;border-radius:10px;padding:13px}
+h2{font-size:14px;margin:0 0 10px}
+.item{display:flex;justify-content:space-between;gap:12px;margin:9px 0;font-size:13px}
+.item span:first-child{color:#a5bac5}
+.item strong{text-align:right}
+progress{width:100%;height:12px;accent-color:#6fdac8}
+#cameraImage{width:100%;aspect-ratio:4/3;object-fit:contain;display:block;background:#05080b;border:1px solid #344752;border-radius:6px}
+.camera[hidden]{display:none}
+.hint{font-size:12px;color:#a5b5c0;line-height:1.5;margin:10px 0 0}
+.camera .status{font-variant-numeric:tabular-nums}
+#visionXY{font-variant-numeric:tabular-nums}
+@media(max-width:930px){
+  .layout{grid-template-columns:1fr}
+  .viewer iframe{height:70vh;min-height:360px}
+  aside{border-left:0;border-top:1px solid #30414c;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+}
+@media(max-width:520px){.toolbar{padding:11px}.actions{width:100%}.actions button{flex:1}.viewer iframe{height:58vh;min-height:300px}}
+</style>
+</head>
+<body>
+<header class="toolbar">
+  <div class="brand">
+    <strong>◈ EarlyBots · Robot Workspace</strong>
+    <small>Vue 3D et commandes au même endroit</small>
+  </div>
+  <div class="actions" aria-label="Commandes du robot">
+    <button class="primary" id="start">▶ Run / Restart</button>
+    <button id="pause">⏸ Pause</button>
+    <button id="reset">↺ Reset</button>
+  </div>
+  <div class="status"><strong id="phase">Connexion…</strong></div>
+</header>
+<main class="layout">
+  <div class="viewer">
+    <iframe id="studio" title="MuJoCo Studio 3D" src="http://127.0.0.1:8080/" loading="eager"></iframe>
+    <div class="viewerbar">
+      <span>Scène MuJoCo 3D · utilisez les commandes EarlyBots en haut pour piloter la séquence</span>
+      <a id="viewer" href="http://127.0.0.1:8080/" target="_blank" rel="noopener">Ouvrir Studio séparément ↗</a>
+    </div>
+  </div>
+  <aside>
+    <section>
+      <h2>État de la simulation</h2>
+      <div class="item"><span>Savon</span><strong id="soap">…</strong></div>
+      <div class="item"><span>Simulation</span><strong id="sim">…</strong></div>
+      <progress id="progress" value="0" max="100"></progress>
+      <div class="item"><span>Progression</span><strong id="percent">0 %</strong></div>
+      <p class="hint">Les boutons Run / Reset natifs de Studio ne contrôlent pas notre script de préhension. Ceux de la barre du haut, oui.</p>
+    </section>
+    <section class="camera" id="cameraPanel" hidden>
+      <h2>Caméra RGB · overhead</h2>
+      <div class="item"><span>Détection</span><strong id="visionStatus">Initialisation…</strong></div>
+      <img id="cameraImage" alt="Image RGB du lavabo, croix verte sur le savon détecté">
+      <div class="item"><span>Position estimée (m)</span><strong id="visionXY">…</strong></div>
+      <p class="hint">La croix verte montre le centre du savon utilisé pour corriger l'approche.</p>
+    </section>
+    <section id="cameraHint">
+      <h2>Vision</h2>
+      <p class="hint">Pour voir la caméra, relancez avec <code>mjpython demo.py --visual-servo</code>.</p>
+    </section>
+  </aside>
 </main>
 <script>
-const $=id=>document.getElementById(id);let waiting=false;let lastCameraRefresh=0;
-async function command(action){if(waiting)return;waiting=true;try{const r=await fetch('/api/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})});if(!r.ok)throw new Error('HTTP '+r.status);await refresh()}catch(e){$('phase').textContent='Erreur : '+e.message}finally{waiting=false}}
-$('start').onclick=()=>command('start');$('pause').onclick=()=>command('pause');$('reset').onclick=()=>command('reset');
-async function refresh(){try{const r=await fetch('/api/status',{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status);const s=await r.json();$('phase').textContent=s.phase;$('soap').textContent=s.soap_in_tray?'Dans le bac ✓':s.holding?'En transport':'Sur le plan de travail';$('sim').textContent=s.paused?'En pause':s.running?'En mouvement':'Active';$('pause').textContent=s.paused?'▶ Reprendre':'⏸ Pause';$('progress').value=s.progress;$('percent').textContent=s.progress+' %';$('viewer').href=s.viewer_url;
-$('cameraPanel').hidden=!s.vision_enabled;
-if(s.vision_enabled){
-  $('visionStatus').textContent=s.vision_detected?'Savon détecté ✓':'Savon non détecté';
-  $('visionXY').textContent=s.observed_soap_xy?s.observed_soap_xy.map(n=>n.toFixed(3)).join(' / '):'Non disponible';
-  if(s.camera_ready&&Date.now()-lastCameraRefresh>450){
-    lastCameraRefresh=Date.now();
-    $('cameraImage').src='/api/camera.png?t='+lastCameraRefresh;
-  }
-}}catch(_){$('phase').textContent='Serveur indisponible'}}
-setInterval(refresh,300);refresh();
-</script></body></html>
+const $ = id => document.getElementById(id);
+let waiting = false;
+let lastCameraRefresh = 0;
+let activeViewerUrl = "http://127.0.0.1:8080/";
+async function command(action){
+  if(waiting)return;
+  waiting=true;
+  for(const id of ["start","pause","reset"])$(id).disabled=true;
+  try{
+    const r=await fetch("/api/command",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action})});
+    if(!r.ok)throw new Error("HTTP "+r.status);
+    await refresh();
+  }catch(e){$("phase").textContent="Erreur : "+e.message}
+  finally{waiting=false;for(const id of ["start","pause","reset"])$(id).disabled=false}
+}
+$("start").onclick=()=>command("start");
+$("pause").onclick=()=>command("pause");
+$("reset").onclick=()=>command("reset");
+async function refresh(){
+  try{
+    const r=await fetch("/api/status",{cache:"no-store"});
+    if(!r.ok)throw new Error("HTTP "+r.status);
+    const s=await r.json();
+    $("phase").textContent=s.phase;
+    $("soap").textContent=s.soap_in_tray?"Dans le bac ✓":s.holding?"En transport":"Sur le plan de travail";
+    $("sim").textContent=s.paused?"En pause":s.running?"En mouvement":"Prête";
+    $("pause").textContent=s.paused?"▶ Reprendre":"⏸ Pause";
+    $("progress").value=s.progress;
+    $("percent").textContent=s.progress+" %";
+    if(s.viewer_url && s.viewer_url!==activeViewerUrl){
+      activeViewerUrl=s.viewer_url;
+      $("studio").src=s.viewer_url;
+      $("viewer").href=s.viewer_url;
+    }
+    $("cameraPanel").hidden=!s.vision_enabled;
+    $("cameraHint").hidden=!!s.vision_enabled;
+    if(s.vision_enabled){
+      $("visionStatus").textContent=s.vision_detected?"Savon détecté ✓":"Savon non détecté";
+      $("visionXY").textContent=s.observed_soap_xy?s.observed_soap_xy.map(n=>n.toFixed(3)).join(" / "):"Non disponible";
+      if(s.camera_ready&&Date.now()-lastCameraRefresh>450){
+        lastCameraRefresh=Date.now();
+        $("cameraImage").src="/api/camera.png?t="+lastCameraRefresh;
+      }
+    }
+  }catch(_){$("phase").textContent="Serveur indisponible"}
+}
+setInterval(refresh,300);
+refresh();
+</script>
+</body>
+</html>
