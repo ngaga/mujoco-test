@@ -1,0 +1,150 @@
+"""Contact-only parallel-jaw grasp experiment.
+
+The palm is a dynamic free body constrained to follow the scripted mocap
+TARGET. The two jaws are mass-bearing MuJoCo bodies driven by position
+actuators, and the soap is never assigned an artificial transport pose.
+"""
+from dataclasses import replace
+
+import mujoco
+import numpy as np
+
+from motion import HOME, Motion, PHASES
+
+# In the physical scene the soap rests at z=0.812 on the 0.79-high counter.
+SOAP_REST_Z = 0.812
+SOAP_TOP_Z = SOAP_REST_Z + 0.022
+# At ~0.02m slide travel the inner faces reach the soap's flat sides.
+# Command a few extra millimetres of compression, never full jaw crossover.
+JAW_CLOSED = 0.026
+JAW_OPEN = 0.0
+
+# Contact settling first, followed by a slower lift: without these the
+# frictional pads leave the soap behind at the initial acceleration.
+PHYSICAL_PHASES = tuple(
+    replace(p, duration=0.90) if i == 2 else
+    replace(p, duration=2.40) if i == 3 else
+    replace(p, target=(p.target[0], p.target[1], 0.963)) if i in (5, 6)
+    else p
+    for i, p in enumerate(PHASES)
+)
+
+
+class PhysicalMotion(Motion):
+    """Same guided trajectory, with the drop height corrected for the tray."""
+
+    def reset(self):
+        super().reset()
+        self.phases = PHYSICAL_PHASES
+
+
+class ContactMonitor:
+    """Observe genuine soap-pad contacts, not state-machine hold flags."""
+
+    def __init__(self, model):
+        self.soap = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "soap_geom")
+        self.left = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "left_pad")
+        self.right = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "right_pad")
+        if min(self.soap, self.left, self.right) < 0:
+            raise ValueError("Physical grasp scene must contain soap and both jaw pads")
+
+    def contacts(self, data):
+        left = right = False
+        for index in range(data.ncon):
+            contact = data.contact[index]
+            pair = {int(contact.geom1), int(contact.geom2)}
+            if self.soap in pair:
+                left = left or self.left in pair
+                right = right or self.right in pair
+        return left, right
+
+
+def step_physical(model, data, motion):
+    """Never touch soap.qpos/qvel. Let MuJoCo resolve all contact forces."""
+    motion.advance(model.opt.timestep)
+    data.mocap_pos[0] = motion.position
+    closed = 2 <= motion.index <= 5 and motion.running
+    data.ctrl[:] = JAW_CLOSED if closed else JAW_OPEN
+    mujoco.mj_step(model, data)
+
+
+def run_contact_smoke(model, iterations=6500, strict=True):
+    """Verify pickup and free release: real lift, bilateral contact, final drop.
+
+    This can fail on a physics regression, even when the old scripted smoke
+    test succeeds. No visual rendering is required in CI.
+    """
+    data = mujoco.MjData(model)
+    motion = PhysicalMotion()
+    monitor = ContactMonitor(model)
+    joint_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "soap_free")
+    qadr = int(model.jnt_qposadr[joint_id])
+    mujoco.mj_resetData(model, data)
+    motion.reset()
+    data.mocap_pos[0] = HOME
+    mujoco.mj_forward(model, data)
+    motion.start()
+    highest = SOAP_REST_Z
+    highest_during_transport = SOAP_REST_Z
+    bilateral_during_lift = False
+    reached_transport = False
+    released = False
+    left_addr = int(model.jnt_qposadr[mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, 'left_slide')])
+    right_addr = int(model.jnt_qposadr[mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, 'right_slide')])
+    diagnostics = []
+    for tick in range(iterations):
+        step_physical(model, data, motion)
+        z = float(data.qpos[qadr + 2])
+        if tick % 250 == 0 and len(diagnostics) < 32:
+            pad_z = (round(float(data.geom_xpos[monitor.left][2]), 3),
+                     round(float(data.geom_xpos[monitor.right][2]), 3))
+            forces = []
+            for ci in range(data.ncon):
+                c = data.contact[ci]
+                if monitor.soap in (int(c.geom1), int(c.geom2)):
+                    wrench = np.zeros(6)
+                    mujoco.mj_contactForce(model, data, ci, wrench)
+                    forces.append((int(c.geom1), int(c.geom2),
+                                   round(float(wrench[0]), 1),
+                                   round(float(wrench[1]), 1)))
+            diagnostics.append((tick, motion.index, round(motion.position[2], 3),
+                                round(z, 3), pad_z,
+                                (round(float(data.qpos[left_addr]), 3), round(float(data.qpos[right_addr]), 3)),
+                                tuple(monitor.contacts(data)), forces[:3]))
+        if not 0.0 <= z <= 2.0:
+            raise RuntimeError(f"Soap diverged in physics: z={z}")
+        highest = max(highest, z)
+        if motion.index in (3, 4):
+            left, right = monitor.contacts(data)
+            bilateral_during_lift |= left and right
+        if motion.index == 4:
+            reached_transport = True
+            highest_during_transport = max(highest_during_transport, z)
+        if motion.index >= 7:
+            released = True
+    soap_xyz = tuple(float(v) for v in data.qpos[qadr:qadr + 3])
+    info = {
+        "highest_z": round(highest, 4),
+        "transport_peak_z": round(highest_during_transport, 4),
+        "bilateral_contacts": bilateral_during_lift,
+        "transport_phase": reached_transport,
+        "released": released,
+        "soap_xyz": soap_xyz,
+        "in_tray": 0.075 < soap_xyz[0] < 0.445 and -0.12 < soap_xyz[1] < 0.22 and 0.82 < soap_xyz[2] < 0.92,
+    }
+    if not strict:
+        return info
+    if (not bilateral_during_lift or highest < SOAP_REST_Z + 0.08
+            or not (reached_transport and released and motion.finished)
+            or not info["in_tray"]):
+        print(f"PHYSICAL GRASP FAILURE DIAGNOSTICS: {diagnostics}", flush=True)
+    if not bilateral_during_lift:
+        raise RuntimeError(f"Physical grasp did not establish bilateral contact: {info}")
+    if highest < SOAP_REST_Z + 0.08:
+        raise RuntimeError(f"Physical grasp did not lift soap by at least 8 cm: {info}")
+    if not (reached_transport and released and motion.finished):
+        raise RuntimeError(f"Physical grasp cycle did not finish: {info}")
+    if not info["in_tray"]:
+        raise RuntimeError(f"Soap was not released into tray: {info}")
+    print(f"OK: contact-only physical pick, carry and release: {info}")
+    return info

@@ -4,7 +4,35 @@ First interactive hotel-bathroom restocking demo using **MuJoCo 4 WebViewer**.
 
 A soap bar starts outside a hotel amenities tray containing a toothbrush and toothpaste. Click **Ranger le savon** to start a scripted pick-and-place sequence. The gripper and soap move in the 3D viewer; reset and pause are available from a local control page. An optional RGB visual servo now corrects the approach in XY while preserving the default scripted demo.
 
-**Important:** This prototype uses a scripted trajectory and kinematic object attachment. It does **not** yet implement autonomous grasping, robot arm dynamics, visual perception, or any safety-critical control.
+**Important:** The default demo remains a scripted trajectory with a kinematic soap attachment. The optional `--physical-grasp` mode uses motorized jaws and real contacts, but **neither mode is autonomous or safety-certified**.
+
+## Experimental contact-only physical grasp
+
+In the same unified workspace you already use, opt into the physical scene:
+
+    mjpython demo.py --physical-grasp --visual-servo --soap-xy -0.21 0.09
+
+In this mode a **dynamic palm follows a scripted mocap reference** through a compliant weld. The two jaws have MuJoCo sliding joints, mass and position motors;
+they squeeze the freely simulated soap using real collision/contact forces.
+**No soap position or velocity is assigned during the grasp or transport.**
+The pinch is released by reopening the motors. This test uses a flat-sided
+rectangular soap of about 300 g and 2 ms integration steps. Curved soaps,
+pose variations and real robot arm control are not yet validated.
+
+To test the contact physics without a browser:
+
+    mjpython demo.py --physical-grasp --smoke-test
+
+The acceptance test must observe simultaneous contacts between the soap and
+both pads during pickup, at least 8 cm of soap lift, completion of the
+transport, and the soap released inside the tray. This distinguishes real
+frictional pickup from the old scripted teleport. The default invocation
+without `--physical-grasp` retains the previous working demonstration.
+For a developer-only parameter sweep, run `python tests/physical_sweep.py`.
+
+This is **not** yet an autonomous physical manipulation policy: it uses a
+prescribed palm motion, a task-specific camera detector and scripted
+open/close timing. It is not an assessment of real-world robot safety.
 
 ## Single-tab robot workspace (recommended)
 
@@ -106,7 +134,9 @@ The smoke test runs one scripted motion cycle and checks the resulting soap posi
 - vision.py: RGB soap detection and calibrated pixel-to-world projection
 - camera_preview.py: annotated PNG camera preview
 - viewer_controls.py: custom Run / Restart, Reset and Pause/Resume buttons embedded in Studio
-- models/bathroom.xml: scene definition
+- models/bathroom.xml: original kinematic scene
+- models/bathroom_physical.xml: actuated two-jaw contact scene
+- physical_grasp.py: physically driven grip and contact acceptance test
 - static/index.html: self-contained command page
 - tests/test_motion.py: unit tests for the script
 
