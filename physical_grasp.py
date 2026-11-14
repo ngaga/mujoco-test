@@ -69,7 +69,7 @@ def step_physical(model, data, motion):
     mujoco.mj_step(model, data)
 
 
-def run_contact_smoke(model, iterations=1500):
+def run_contact_smoke(model, iterations=1500, strict=True):
     """Verify pickup and free release: real lift, bilateral contact, final drop.
 
     This can fail on a physics regression, even when the old scripted smoke
@@ -86,6 +86,7 @@ def run_contact_smoke(model, iterations=1500):
     mujoco.mj_forward(model, data)
     motion.start()
     highest = SOAP_REST_Z
+    highest_during_transport = SOAP_REST_Z
     bilateral_during_lift = False
     reached_transport = False
     released = False
@@ -119,17 +120,21 @@ def run_contact_smoke(model, iterations=1500):
             bilateral_during_lift |= left and right
         if motion.index == 4:
             reached_transport = True
+            highest_during_transport = max(highest_during_transport, z)
         if motion.index >= 7:
             released = True
     soap_xyz = tuple(float(v) for v in data.qpos[qadr:qadr + 3])
     info = {
         "highest_z": round(highest, 4),
+        "transport_peak_z": round(highest_during_transport, 4),
         "bilateral_contacts": bilateral_during_lift,
         "transport_phase": reached_transport,
         "released": released,
         "soap_xyz": soap_xyz,
         "in_tray": 0.075 < soap_xyz[0] < 0.445 and -0.12 < soap_xyz[1] < 0.22 and 0.82 < soap_xyz[2] < 0.92,
     }
+    if not strict:
+        return info
     print(f"PHYSICAL GRASP DIAGNOSTICS: {diagnostics}", flush=True)
     if not bilateral_during_lift:
         raise RuntimeError(f"Physical grasp did not establish bilateral contact: {info}")
