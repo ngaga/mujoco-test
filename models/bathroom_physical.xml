@@ -36,9 +36,15 @@
       <geom name="eye" type="box" pos="0 -0.128 1.15" size="0.079 0.008 0.032" rgba="0.15 0.82 0.96 1" contype="0" conaffinity="0"/>
     </body>
 
-    <!-- Tool root is still guided kinematically: ONLY the two jaws and the soap
-         interact through actual MuJoCo contacts, forces and friction. -->
-    <body name="gripper" mocap="true" pos="-0.42 -0.06 1.16">
+    <!-- Kinematic reference target follows the existing visual servo.
+         The actual gripper is DYNAMIC, coupled to this target by a stiff
+         (but compliant) weld constraint. Contact friction uses real body velocity. -->
+    <body name="gripper_target" mocap="true" pos="-0.42 -0.06 1.16">
+      <geom type="sphere" size="0.004" rgba="0 0 0 0"
+            contype="0" conaffinity="0"/>
+    </body>
+    <body name="gripper" pos="-0.42 -0.06 1.16">
+      <freejoint name="gripper_free"/>
       <geom name="tool_rod" type="capsule" fromto="0 0 0.015 0 0 0.17" size="0.016"
             rgba="0.28 0.39 0.44 1" contype="0" conaffinity="0"/>
       <geom name="tool_body" type="box" size="0.049 0.049 0.035"
@@ -59,6 +65,10 @@
       </body>
     </body>
   </worldbody>
+  <equality>
+    <weld name="palm_follow" body1="gripper_target" body2="gripper"
+          solref="0.008 1" solimp="0.95 0.99 0.001 0.5 2"/>
+  </equality>
   <actuator>
     <position name="left_grip" joint="left_slide" kp="600" kv="35"
               ctrllimited="true" ctrlrange="0 0.080"
