@@ -7,6 +7,7 @@ actuators, and the soap is never assigned an artificial transport pose.
 from dataclasses import replace
 
 import mujoco
+import numpy as np
 
 from motion import HOME, Motion, PHASES
 
@@ -99,7 +100,7 @@ def run_contact_smoke(model, iterations=1500):
             for ci in range(data.ncon):
                 c = data.contact[ci]
                 if monitor.soap in (int(c.geom1), int(c.geom2)):
-                    wrench = [0.0] * 6
+                    wrench = np.zeros(6)
                     mujoco.mj_contactForce(model, data, ci, wrench)
                     forces.append((int(c.geom1), int(c.geom2),
                                    round(float(wrench[0]), 1),
