@@ -24,7 +24,7 @@
       <geom name="toothbrush" type="capsule" fromto="-0.075 0.075 0.03 -0.075 -0.09 0.03" size="0.007" rgba="0.25 0.78 0.86 1" contype="0" conaffinity="0"/>
       <geom name="toothbrush_head" type="box" pos="-0.075 0.09 0.035" size="0.014 0.023 0.007" rgba="0.96 0.96 0.99 1" contype="0" conaffinity="0"/>
     </body>
-    <body name="soap" pos="-0.27 0.005 0.844">
+    <body name="soap" pos="-0.27 0.005 0.812">
       <freejoint name="soap_free"/>
       <geom name="soap_geom" type="ellipsoid" size="0.078 0.05 0.022" density="850" rgba="0.98 0.74 0.20 1"/>
     </body>
@@ -42,14 +42,14 @@
             rgba="0.28 0.39 0.44 1" contype="0" conaffinity="0"/>
       <geom name="tool_body" type="box" size="0.049 0.049 0.035"
             rgba="0.12 0.17 0.21 1" contype="0" conaffinity="0"/>
-      <body name="left_finger" pos="0 -0.080 -0.087">
+      <body name="left_finger" pos="0 -0.080 -0.119">
         <joint name="left_slide" type="slide" axis="0 1 0" range="0 0.045"
                damping="4" armature="0.001"/>
         <geom name="left_pad" type="box" size="0.046 0.010 0.022"
               density="400" friction="2.5 0.05 0.02" condim="4" priority="1"
               rgba="0.12 0.62 0.71 1"/>
       </body>
-      <body name="right_finger" pos="0 0.080 -0.087">
+      <body name="right_finger" pos="0 0.080 -0.119">
         <joint name="right_slide" type="slide" axis="0 -1 0" range="0 0.045"
                damping="4" armature="0.001"/>
         <geom name="right_pad" type="box" size="0.046 0.010 0.022"
