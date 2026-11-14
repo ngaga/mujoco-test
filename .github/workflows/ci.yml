@@ -39,9 +39,6 @@ jobs:
       - name: Check Python syntax
         run: python -m compileall -q demo.py motion.py vision.py camera_preview.py viewer_controls.py physical_grasp.py tests
 
-      - name: Diagnostic physical grasp actuator sweep
-        run: python tests/physical_sweep.py
-
       - name: Run unit and regression tests
         run: python -m unittest discover -s tests -v
 
