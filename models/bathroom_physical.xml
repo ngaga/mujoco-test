@@ -46,24 +46,24 @@
         <joint name="left_slide" type="slide" axis="0 1 0" range="0 0.045"
                damping="4" armature="0.001"/>
         <geom name="left_pad" type="box" size="0.046 0.010 0.022"
-              density="400" friction="2.5 0.05 0.02" condim="4" priority="1"
+              density="400" friction="4.0 0.05 0.02" condim="4" priority="1"
               rgba="0.12 0.62 0.71 1"/>
       </body>
       <body name="right_finger" pos="0 0.080 -0.119">
         <joint name="right_slide" type="slide" axis="0 -1 0" range="0 0.045"
                damping="4" armature="0.001"/>
         <geom name="right_pad" type="box" size="0.046 0.010 0.022"
-              density="400" friction="2.5 0.05 0.02" condim="4" priority="1"
+              density="400" friction="4.0 0.05 0.02" condim="4" priority="1"
               rgba="0.12 0.62 0.71 1"/>
       </body>
     </body>
   </worldbody>
   <actuator>
-    <position name="left_grip" joint="left_slide" kp="600" kv="20"
+    <position name="left_grip" joint="left_slide" kp="1800" kv="35"
               ctrllimited="true" ctrlrange="0 0.045"
-              forcelimited="true" forcerange="-30 30"/>
-    <position name="right_grip" joint="right_slide" kp="600" kv="20"
+              forcelimited="true" forcerange="-60 60"/>
+    <position name="right_grip" joint="right_slide" kp="1800" kv="35"
               ctrllimited="true" ctrlrange="0 0.045"
-              forcelimited="true" forcerange="-30 30"/>
+              forcelimited="true" forcerange="-60 60"/>
   </actuator>
 </mujoco>
