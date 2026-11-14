@@ -9,6 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import mujoco
+import numpy as np
 from motion import HOME, Motion, SOAP_OFFSET
 from vision import soap_centroid, pixel_on_plane
 from camera_preview import rgb_png
@@ -17,6 +18,24 @@ from physical_grasp import (ContactMonitor, PhysicalMotion, SOAP_TOP_Z,
                             run_contact_smoke, step_physical)
 
 ROOT = Path(__file__).resolve().parent
+
+
+def json_safe(value):
+    """Convert NumPy scalars in status snapshots to standard JSON values.
+
+    NumPy 2.x may call np.bool_ 'bool', but json.dumps still rejects it.
+    Keep status snapshots JSON-compatible at the publish boundary so both
+    the HTTP API and the embedded viewer receive consistent values.
+    """
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, np.ndarray):
+        return json_safe(value.tolist())
+    if isinstance(value, (list, tuple)):
+        return [json_safe(item) for item in value]
+    if isinstance(value, dict):
+        return {key: json_safe(item) for key, item in value.items()}
+    return value
 
 
 class State:
@@ -40,7 +59,7 @@ class State:
 
     def publish(self, **kwargs):
         with self.lock:
-            self.snapshot.update(kwargs)
+            self.snapshot.update({key: json_safe(value) for key, value in kwargs.items()})
 
     def publish_camera(self, png):
         with self.lock:
@@ -310,7 +329,7 @@ def main():
                     contact_left=contact_left, contact_right=contact_right,
                     phase=motion.label if own else "Autre modèle chargé : relancer demo.py",
                     running=motion.running if own else False,
-                    holding=(contact_left and contact_right and data.qpos[qadr + 2] > 0.88)
+                    holding=bool(contact_left and contact_right and data.qpos[qadr + 2] > 0.88)
                     if own and args.physical_grasp else (motion.holding if own else False),
                     paused=paused,
                     progress=motion.progress if own else 0,

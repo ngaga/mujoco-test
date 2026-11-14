@@ -8,6 +8,7 @@ from pathlib import Path
 from urllib.request import Request, urlopen
 
 import mujoco
+import numpy as np
 
 from demo import ROOT, State, handler_factory, soap_joint_addresses, smoke_test
 
@@ -35,6 +36,40 @@ class MuJoCoIntegrationTests(unittest.TestCase):
 
 
 class ControlPanelTests(unittest.TestCase):
+    def test_http_status_serializes_physical_numpy_values(self):
+        # Regression for Python 3.14 / NumPy 2.x: np.bool_ can be named
+        # 'bool' yet json.dumps rejects it, breaking the status endpoint.
+        state = State(8080)
+        state.publish(
+            holding=np.bool_(True),
+            contact_left=np.bool_(True),
+            contact_right=np.bool_(False),
+            progress=np.int64(42),
+            observed_soap_xy=(np.float32(-0.21), np.float64(0.09)),
+            # Accept simple nested telemetry too, without leaking arrays.
+            debug={"height": np.float32(0.99),
+                   "contacts": np.array([True, False], dtype=np.bool_)},
+        )
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler_factory(state))
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            origin = f"http://127.0.0.1:{server.server_port}"
+            with urlopen(origin + "/api/status", timeout=3) as response:
+                self.assertEqual(response.status, 200)
+                self.assertEqual(response.headers.get_content_type(), "application/json")
+                status = json.load(response)
+            self.assertIs(status["holding"], True)
+            self.assertIs(status["contact_left"], True)
+            self.assertIs(status["contact_right"], False)
+            self.assertEqual(status["progress"], 42)
+            self.assertAlmostEqual(status["observed_soap_xy"][0], -0.21, places=6)
+            self.assertEqual(status["debug"]["contacts"], [True, False])
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=3)
+
     def test_http_panel_status_and_commands(self):
         state = State(8080)
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler_factory(state))
