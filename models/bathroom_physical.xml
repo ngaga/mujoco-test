@@ -26,7 +26,8 @@
     </body>
     <body name="soap" pos="-0.27 0.005 0.812">
       <freejoint name="soap_free"/>
-      <geom name="soap_geom" type="ellipsoid" size="0.078 0.05 0.022" density="850" rgba="0.98 0.74 0.20 1"/>
+      <!-- Start with flat-sided soap: flat sides allow realistic normal gripping forces. -->
+      <geom name="soap_geom" type="box" size="0.075 0.05 0.022" density="450" rgba="0.98 0.74 0.20 1"/>
     </body>
     <body name="robot_base" pos="-0.76 -0.37 0.11">
       <geom name="base" type="cylinder" size="0.16 0.105" rgba="0.17 0.22 0.26 1"/>
