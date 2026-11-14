@@ -14,7 +14,6 @@ from motion import HOME, Motion, PHASES
 # In the physical scene the soap rests at z=0.812 on the 0.79-high counter.
 SOAP_REST_Z = 0.812
 SOAP_TOP_Z = SOAP_REST_Z + 0.022
-GRIPPER_SOAP_DELTA_Z = 0.119
 # At ~0.02m slide travel the inner faces reach the soap's flat sides.
 # Command a few extra millimetres of compression, never full jaw crossover.
 JAW_CLOSED = 0.026
@@ -135,7 +134,10 @@ def run_contact_smoke(model, iterations=6500, strict=True):
     }
     if not strict:
         return info
-    print(f"PHYSICAL GRASP DIAGNOSTICS: {diagnostics}", flush=True)
+    if (not bilateral_during_lift or highest < SOAP_REST_Z + 0.08
+            or not (reached_transport and released and motion.finished)
+            or not info["in_tray"]):
+        print(f"PHYSICAL GRASP FAILURE DIAGNOSTICS: {diagnostics}", flush=True)
     if not bilateral_during_lift:
         raise RuntimeError(f"Physical grasp did not establish bilateral contact: {info}")
     if highest < SOAP_REST_Z + 0.08:
