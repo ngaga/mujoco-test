@@ -8,7 +8,7 @@ from dataclasses import replace
 
 import mujoco
 
-from motion import Motion, PHASES
+from motion import HOME, Motion, PHASES
 
 # In the physical scene the soap rests at z=0.812 on the 0.79-high counter.
 SOAP_REST_Z = 0.812
@@ -70,13 +70,15 @@ def run_contact_smoke(model, iterations=1500):
     This can fail on a physics regression, even when the old scripted smoke
     test succeeds. No visual rendering is required in CI.
     """
-    from demo import reset, soap_joint_addresses, soap_in_tray
-
     data = mujoco.MjData(model)
     motion = PhysicalMotion()
     monitor = ContactMonitor(model)
-    qadr, _ = soap_joint_addresses(model)
-    reset(model, data, motion)
+    joint_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "soap_free")
+    qadr = int(model.jnt_qposadr[joint_id])
+    mujoco.mj_resetData(model, data)
+    motion.reset()
+    data.mocap_pos[0] = HOME
+    mujoco.mj_forward(model, data)
     motion.start()
     highest = SOAP_REST_Z
     bilateral_during_lift = False
@@ -102,7 +104,7 @@ def run_contact_smoke(model, iterations=1500):
         "transport_phase": reached_transport,
         "released": released,
         "soap_xyz": soap_xyz,
-        "in_tray": soap_in_tray(data, qadr, False),
+        "in_tray": 0.075 < soap_xyz[0] < 0.445 and -0.12 < soap_xyz[1] < 0.22 and 0.82 < soap_xyz[2] < 0.92,
     }
     if not bilateral_during_lift:
         raise RuntimeError(f"Physical grasp did not establish bilateral contact: {info}")
