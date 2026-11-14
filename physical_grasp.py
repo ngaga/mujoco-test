@@ -84,9 +84,15 @@ def run_contact_smoke(model, iterations=1500):
     bilateral_during_lift = False
     reached_transport = False
     released = False
-    for _ in range(iterations):
+    diagnostics = []
+    for tick in range(iterations):
         step_physical(model, data, motion)
         z = float(data.qpos[qadr + 2])
+        if tick % 50 == 0 and len(diagnostics) < 25:
+            diagnostics.append((tick, motion.index, round(motion.position[2], 3),
+                                round(z, 3), tuple(round(float(v), 3) for v in data.qpos[qadr:qadr+2]),
+                                tuple(round(float(v), 3) for v in data.qpos[qadr+7:qadr+9]),
+                                tuple(monitor.contacts(data))))
         if not 0.0 <= z <= 2.0:
             raise RuntimeError(f"Soap diverged in physics: z={z}")
         highest = max(highest, z)
@@ -106,6 +112,7 @@ def run_contact_smoke(model, iterations=1500):
         "soap_xyz": soap_xyz,
         "in_tray": 0.075 < soap_xyz[0] < 0.445 and -0.12 < soap_xyz[1] < 0.22 and 0.82 < soap_xyz[2] < 0.92,
     }
+    print(f"PHYSICAL GRASP DIAGNOSTICS: {diagnostics}", flush=True)
     if not bilateral_during_lift:
         raise RuntimeError(f"Physical grasp did not establish bilateral contact: {info}")
     if highest < SOAP_REST_Z + 0.08:
