@@ -4,7 +4,7 @@ First interactive hotel-bathroom restocking demo using **MuJoCo 4 WebViewer**.
 
 A soap bar starts outside a hotel amenities tray containing a toothbrush and toothpaste. Click **Ranger le savon** to start a scripted pick-and-place sequence. The gripper and soap move in the 3D viewer; reset and pause are available from a local control page. An optional RGB visual servo now corrects the approach in XY while preserving the default scripted demo.
 
-**Important:** This prototype uses a scripted trajectory and kinematic object attachment. It does **not** yet implement autonomous grasping, robot arm dynamics, visual perception, or any safety-critical control.
+**Important:** The default demo remains a scripted trajectory with a kinematic soap attachment. The optional `--physical-grasp` mode uses motorized jaws and real contacts, but **neither mode is autonomous or safety-certified**.
 
 ## Experimental contact-only physical grasp
 
@@ -12,11 +12,12 @@ In the same unified workspace you already use, opt into the physical scene:
 
     mjpython demo.py --physical-grasp --visual-servo --soap-xy -0.21 0.09
 
-In this mode the palm is still moved along a **scripted mocap trajectory**.
-But the two jaws now have MuJoCo sliding joints, mass and position motors;
+In this mode a **dynamic palm follows a scripted mocap reference** through a compliant weld. The two jaws have MuJoCo sliding joints, mass and position motors;
 they squeeze the freely simulated soap using real collision/contact forces.
 **No soap position or velocity is assigned during the grasp or transport.**
-The pinch is released by reopening the motors.
+The pinch is released by reopening the motors. This test uses a flat-sided
+rectangular soap of about 300 g and 2 ms integration steps. Curved soaps,
+pose variations and real robot arm control are not yet validated.
 
 To test the contact physics without a browser:
 
@@ -27,6 +28,7 @@ both pads during pickup, at least 8 cm of soap lift, completion of the
 transport, and the soap released inside the tray. This distinguishes real
 frictional pickup from the old scripted teleport. The default invocation
 without `--physical-grasp` retains the previous working demonstration.
+For a developer-only parameter sweep, run `python tests/physical_sweep.py`.
 
 This is **not** yet an autonomous physical manipulation policy: it uses a
 prescribed palm motion, a task-specific camera detector and scripted
