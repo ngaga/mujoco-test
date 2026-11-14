@@ -37,7 +37,7 @@ jobs:
         run: python -m pip install -r requirements.txt
 
       - name: Check Python syntax
-        run: python -m compileall -q demo.py motion.py vision.py camera_preview.py viewer_controls.py tests
+        run: python -m compileall -q demo.py motion.py vision.py camera_preview.py viewer_controls.py physical_grasp.py tests
 
       - name: Run unit and regression tests
         run: python -m unittest discover -s tests -v
@@ -47,6 +47,9 @@ jobs:
 
       - name: Exercise a full simulation cycle
         run: python demo.py --smoke-test
+
+      - name: Verify real contact pickup and tray release
+        run: python demo.py --physical-grasp --smoke-test
 
       - name: Boot headless WebViewer and exercise HTTP controls
         run: python tests/viewer_smoke.py
