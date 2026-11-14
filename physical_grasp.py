@@ -17,7 +17,7 @@ SOAP_TOP_Z = SOAP_REST_Z + 0.022
 GRIPPER_SOAP_DELTA_Z = 0.119
 # Actuator target exceeds the nominal first-contact position: force-limited
 # position servos compress the contact slightly to generate normal force.
-JAW_CLOSED = 0.045
+JAW_CLOSED = 0.075
 JAW_OPEN = 0.0
 
 # Contact settling first, followed by a slower lift: without these the
