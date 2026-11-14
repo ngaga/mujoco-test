@@ -1,6 +1,6 @@
 <mujoco model="EarlyBots bathroom restocking demo">
   <compiler angle="radian"/>
-  <option timestep="0.01" gravity="0 0 -9.81" integrator="implicitfast"/>
+  <option timestep="0.002" gravity="0 0 -9.81" integrator="implicitfast" cone="elliptic" solver="Newton" iterations="100"/>
   <default><geom condim="3" friction="0.9 0.08 0.03"/></default>
   <visual><global azimuth="135" elevation="-24"/></visual>
   <statistic center="-0.1 0 0.75" extent="1.5"/>
