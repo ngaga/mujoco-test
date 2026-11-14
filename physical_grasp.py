@@ -1,7 +1,7 @@
 """Contact-only parallel-jaw grasp experiment.
 
-The palm pose is still commanded by the existing scripted MuJoCo mocap path.
-The two jaw slides are genuine mass-bearing MuJoCo bodies driven by position
+The palm is a dynamic free body constrained to follow the scripted mocap
+TARGET. The two jaws are mass-bearing MuJoCo bodies driven by position
 actuators, and the soap is never assigned an artificial transport pose.
 """
 from dataclasses import replace
@@ -89,6 +89,8 @@ def run_contact_smoke(model, iterations=1500):
     bilateral_during_lift = False
     reached_transport = False
     released = False
+    left_addr = int(model.jnt_qposadr[mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, 'left_slide')])
+    right_addr = int(model.jnt_qposadr[mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, 'right_slide')])
     diagnostics = []
     for tick in range(iterations):
         step_physical(model, data, motion)
@@ -107,7 +109,7 @@ def run_contact_smoke(model, iterations=1500):
                                    round(float(wrench[1]), 1)))
             diagnostics.append((tick, motion.index, round(motion.position[2], 3),
                                 round(z, 3), pad_z,
-                                tuple(round(float(v), 3) for v in data.qpos[qadr+7:qadr+9]),
+                                (round(float(data.qpos[left_addr]), 3), round(float(data.qpos[right_addr]), 3)),
                                 tuple(monitor.contacts(data)), forces[:3]))
         if not 0.0 <= z <= 2.0:
             raise RuntimeError(f"Soap diverged in physics: z={z}")
