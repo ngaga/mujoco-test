@@ -13,6 +13,8 @@ from motion import HOME, Motion, SOAP_OFFSET
 from vision import soap_centroid, pixel_on_plane
 from camera_preview import rgb_png
 from viewer_controls import EarlyBotsViewerControls
+from physical_grasp import (ContactMonitor, PhysicalMotion, SOAP_TOP_Z,
+                            run_contact_smoke, step_physical)
 
 ROOT = Path(__file__).resolve().parent
 
@@ -27,6 +29,7 @@ class State:
         self.snapshot = dict(
             phase="Prêt", running=False, holding=False, paused=False,
             progress=0, soap_in_tray=False, vision_enabled=False,
+            physical_grasp=False, contact_left=False, contact_right=False,
             vision_detected=False, observed_soap_xy=None, camera_ready=False,
             viewer_url=f"http://127.0.0.1:{port}/"
         )
@@ -110,7 +113,7 @@ def set_initial_soap(model, data, qadr, soap_xy):
         mujoco.mj_forward(model, data)
 
 
-def observe_soap(model, data, motion, renderer, camera_id, state):
+def observe_soap(model, data, motion, renderer, camera_id, state, soap_top_z=0.866):
     """Render, publish the annotated RGB image, and optionally update XY."""
     renderer.update_scene(data, camera="overhead")
     image = renderer.render()
@@ -123,7 +126,7 @@ def observe_soap(model, data, motion, renderer, camera_id, state):
     xy = pixel_on_plane(
         pixel, image.shape, data.cam_xpos[camera_id],
         data.cam_xmat[camera_id], float(model.cam_fovy[camera_id]),
-        plane_z=0.866,
+        plane_z=soap_top_z,
     )
     if xy is not None and -0.6 < xy[0] < 0.6 and -0.32 < xy[1] < 0.32:
         # Do not chase the soap after simulated grasping has started.
@@ -177,18 +180,24 @@ def main():
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--check-model", action="store_true")
     parser.add_argument("--smoke-test", action="store_true")
+    parser.add_argument("--physical-grasp", action="store_true",
+                        help="simulate two motorized physical jaws; never teleport soap")
     parser.add_argument("--visual-servo", action="store_true",
                         help="use overhead RGB images to correct soap approach")
     parser.add_argument("--soap-xy", nargs=2, type=float, metavar=("X", "Y"),
                         help="relocate the initial soap to test visual feedback")
     args = parser.parse_args()
-    model = mujoco.MjModel.from_xml_path(str(ROOT / "models" / "bathroom.xml"))
+    scene = "bathroom_physical.xml" if args.physical_grasp else "bathroom.xml"
+    model = mujoco.MjModel.from_xml_path(str(ROOT / "models" / scene))
     print(f"Loaded: {model.nbody} bodies, {model.ngeom} geoms")
     if args.check_model:
         print("OK: MJCF compiled successfully.")
         return
     if args.smoke_test:
-        smoke_test(model)
+        if args.physical_grasp:
+            run_contact_smoke(model)
+        else:
+            smoke_test(model)
         return
     if args.viewer_port == args.controls_port:
         parser.error("Control and viewer ports must be different")
@@ -210,12 +219,14 @@ def main():
 
     original_model = model
     data = mujoco.MjData(model)
-    motion = Motion()
+    motion = PhysicalMotion() if args.physical_grasp else Motion()
+    monitor = ContactMonitor(model) if args.physical_grasp else None
     qadr, vadr = soap_joint_addresses(model)
     reset(model, data, motion)
     set_initial_soap(model, data, qadr, args.soap_xy)
     state = State(args.viewer_port)
-    state.publish(vision_enabled=args.visual_servo)
+    state.publish(vision_enabled=args.visual_servo,
+                  physical_grasp=args.physical_grasp)
     renderer = None
     camera_id = -1
     if args.visual_servo:
@@ -233,7 +244,7 @@ def main():
     cfg = viewer_protocol.ViewerConfig(title="EarlyBots | Bathroom Demo", http_port=args.viewer_port)
     print(f"WebViewer 3D: http://127.0.0.1:{args.viewer_port}/")
     print(f"Control panel: http://127.0.0.1:{args.controls_port}/")
-    print("Ctrl+C to stop. Demo uses a scripted grasp, not an autonomous one.")
+    print("Ctrl+C to stop. Guided trajectory; physical grasp enabled:", args.physical_grasp)
     print("Use the EarlyBots | Robot commands panel INSIDE the 3D WebViewer for Run/Restart/Reset/Pause.")
     panel_paused = False
     vision_tick = 0
@@ -268,7 +279,10 @@ def main():
                         vision_tick = 0
                         motion.start()
                         if renderer is not None:
-                            xy = observe_soap(model, data, motion, renderer, camera_id, state)
+                            xy = observe_soap(
+                                model, data, motion, renderer, camera_id, state,
+                                SOAP_TOP_Z if args.physical_grasp else 0.866,
+                            )
                             state.publish(vision_detected=xy is not None,
                                           observed_soap_xy=xy)
                             if xy is None:
@@ -285,13 +299,19 @@ def main():
                             xy = observe_soap(model, data, motion, renderer, camera_id, state)
                             state.publish(vision_detected=xy is not None,
                                           observed_soap_xy=xy)
-                        step(model, data, motion, qadr, vadr)
+                        if args.physical_grasp:
+                            step_physical(model, data, motion)
+                        else:
+                            step(model, data, motion, qadr, vadr)
                     else:
                         mujoco.mj_step(model, data)
+                contact_left, contact_right = (monitor.contacts(data) if own and monitor else (False, False))
                 state.publish(
+                    contact_left=contact_left, contact_right=contact_right,
                     phase=motion.label if own else "Autre modèle chargé : relancer demo.py",
                     running=motion.running if own else False,
-                    holding=motion.holding if own else False,
+                    holding=(contact_left and contact_right and data.qpos[qadr + 2] > 0.88)
+                    if own and args.physical_grasp else (motion.holding if own else False),
                     paused=paused,
                     progress=motion.progress if own else 0,
                     soap_in_tray=soap_in_tray(data, qadr, motion.holding) if own else False,
