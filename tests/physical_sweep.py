@@ -1,9 +1,11 @@
 """Diagnostic sweep for choosing a physically stable grip command."""
 from pathlib import Path
+import sys
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 import mujoco
 import physical_grasp
 
-ROOT = Path(__file__).resolve().parents[1]
 model = mujoco.MjModel.from_xml_path(str(ROOT / "models" / "bathroom_physical.xml"))
 for target in [0.028, 0.032, 0.036, 0.040, 0.044, 0.048, 0.052, 0.056, 0.060, 0.065, 0.070, 0.075]:
     physical_grasp.JAW_CLOSED = target
