@@ -16,12 +16,16 @@ SOAP_TOP_Z = SOAP_REST_Z + 0.022
 GRIPPER_SOAP_DELTA_Z = 0.119
 # Actuator target exceeds the nominal first-contact position: force-limited
 # position servos compress the contact slightly to generate normal force.
-JAW_CLOSED = 0.042
+JAW_CLOSED = 0.045
 JAW_OPEN = 0.0
 
+# Contact settling first, followed by a slower lift: without these the
+# frictional pads leave the soap behind at the initial acceleration.
 PHYSICAL_PHASES = tuple(
-    replace(p, target=(p.target[0], p.target[1], 0.963))
-    if i in (5, 6) else p
+    replace(p, duration=0.90) if i == 2 else
+    replace(p, duration=2.40) if i == 3 else
+    replace(p, target=(p.target[0], p.target[1], 0.963)) if i in (5, 6)
+    else p
     for i, p in enumerate(PHASES)
 )
 
