@@ -21,6 +21,10 @@ class PhysicalGraspTests(unittest.TestCase):
         model = self.model
         self.assertEqual(model.nu, 2)
         self.assertEqual(model.nmocap, 1)
+        palm_joint = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "gripper_free")
+        self.assertNotEqual(palm_joint, -1)
+        self.assertEqual(model.jnt_type[palm_joint], mujoco.mjtJoint.mjJNT_FREE)
+        self.assertGreater(model.neq, 0)
         monitor = ContactMonitor(model)
         self.assertNotEqual(monitor.left, monitor.right)
         j = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "soap_free")
