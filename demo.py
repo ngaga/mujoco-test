@@ -378,6 +378,7 @@ def main():
                                 vision_detected=observed is not None,
                                 observed_soap_xy=observed,
                             )
+                            recovery.note_visual_observation(observed)
                         else:
                             # Simulation-only fallback: world position, never
                             # used when camera feedback is enabled.
