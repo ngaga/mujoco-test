@@ -21,10 +21,11 @@ task. No motion-script actions and no fine-tuning are used.
   see `vla/README.md`.
 
 This is the SO-101 reference task with a **red cube and blue tray**, not
-yet EarlyBots' hotel soap. Standard CI tests the scene, image/state/action
-interfaces and stub-inference path without downloading ~907MB weights.
-Only a full checkpoint inference rollout proves that the VLA actually
-picks up anything; see the JSON result instead of assuming success.
+yet EarlyBots' hotel soap. CI tests the scene, image/state/action interfaces, and attempts one
+real pretrained-model rollout on Ubuntu CPU with the ~907MB checkpoint.
+The uploaded JSON contains the observed outcome. This single attempt
+is not evidence of an 18/20 success rate; see the report rather than
+assuming the grasp succeeded.
 
 ## Pretrained VLA: SmolVLA pick-and-place (experimental)
 
