@@ -67,5 +67,20 @@ jobs:
           PYOPENGL_PLATFORM: osmesa
         run: python tests/visual_recovery_smoke.py
 
+      - name: Benchmark matched randomized positions with and without recovery
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            python robustness.py --trials 100 --seed 2026 --output robustness_report.json
+          else
+            python robustness.py --trials 8 --seed 2026 --output robustness_report.json
+          fi
+
+      - name: Save complete physical robustness results
+        uses: actions/upload-artifact@v4
+        with:
+          name: robustness-${{ matrix.os }}
+          path: robustness_report.json
+          if-no-files-found: error
+
       - name: Boot headless WebViewer and exercise HTTP controls
         run: python tests/viewer_smoke.py
