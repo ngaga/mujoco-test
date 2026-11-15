@@ -55,9 +55,9 @@ class GraspSupervisor:
         if both_contacts and soap_z >= MIN_LIFT_Z and phase_index in (3, 4, 5):
             result.grasp_verified = True
 
-        # During transport and the still-closed part of the descent, verify
-        # that the soap is actually off the counter. Allow brief slips/noise.
-        if phase_index in (4, 5) and not finished:
+        # During transport, verify the soap is off the counter. During the
+        # subsequent planned descent, the soap can legitimately be lower.
+        if phase_index == 4 and not finished:
             lost = (not result.grasp_verified or soap_z < MIN_LIFT_Z)
             self._drop_duration = self._drop_duration + dt if lost else 0.0
             if self._drop_duration >= DROP_GRACE_SECONDS:
