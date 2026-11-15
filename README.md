@@ -6,6 +6,26 @@ A soap bar starts outside a hotel amenities tray containing a toothbrush and too
 
 **Important:** The default demo remains a scripted trajectory with a kinematic soap attachment. The optional `--physical-grasp` mode uses motorized jaws and real contacts, but **neither mode is autonomous or safety-certified**.
 
+## Actual SO-101 MuJoCo VLA evaluation (pretrained; no training)
+
+**New experiment:** `vla/run_so101.py` uses the author's *matching*
+SO-ARM100 articulated robot, six genuine motor actuators, two RGB cameras,
+and the published SmolVLA v2 checkpoint. It runs closed-loop predictions
+on the real MuJoCo scene and scores a physically completed cube-in-tray
+task. No motion-script actions and no fine-tuning are used.
+
+- First verify the environment: `mjpython vla/run_so101.py --check-env`
+- Then attempt a true learned pick/place:
+  `mjpython vla/run_so101.py --episodes 1 --device mps`
+- For detailed setup, pinned third-party scene and sample GIF:
+  see `vla/README.md`.
+
+This is the SO-101 reference task with a **red cube and blue tray**, not
+yet EarlyBots' hotel soap. Standard CI tests the scene, image/state/action
+interfaces and stub-inference path without downloading ~907MB weights.
+Only a full checkpoint inference rollout proves that the VLA actually
+picks up anything; see the JSON result instead of assuming success.
+
 ## Pretrained VLA: SmolVLA pick-and-place (experimental)
 
 To avoid developing a VLA ourselves, we selected a real pretrained
