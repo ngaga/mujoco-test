@@ -80,14 +80,14 @@ jobs:
             'torch==2.8.0' 'torchvision==0.23.0'
           python -m pip install 'lerobot[smolvla]==0.6.0'
 
-      - name: Attempt one real pretrained SmolVLA pick and place in MuJoCo (Ubuntu)
+      - name: Benchmark 20 real pretrained SmolVLA SO-101 pick and place episodes (Ubuntu)
         if: runner.os == 'Linux'
         timeout-minutes: 12
         env:
           MUJOCO_GL: osmesa
           PYOPENGL_PLATFORM: osmesa
         run: |
-          python vla/run_so101.py --episodes 1 --max-steps 240 --seed 123 \
+          python vla/run_so101.py --episodes 20 --max-steps 240 --seed 123 \
             --device cpu --output vla_runs/so101_evaluation.json
 
       - name: Upload real pretrained SO-101 VLA physics evaluation
