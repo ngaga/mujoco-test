@@ -60,6 +60,18 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq libosmesa6 libosmesa6-dev libgl1-mesa-dri
 
+      - name: Install upstream reference SO-ARM100 MuJoCo workcell
+        if: runner.os == 'Linux'
+        run: |
+          python -m pip install 'git+https://github.com/ahmedsohail2003/workcell-partA-imitation.git@5822ac1dd508c92183fd8ecc99f91d6ec386549b'
+
+      - name: Render matching SO-101 front and wrist cameras and step joint motors
+        if: runner.os == 'Linux'
+        env:
+          MUJOCO_GL: osmesa
+          PYOPENGL_PLATFORM: osmesa
+        run: python vla/run_so101.py --check-env --seed 123
+
       - name: Verify angled RGB camera regrasp with software rendering (Ubuntu)
         if: runner.os == 'Linux'
         env:
