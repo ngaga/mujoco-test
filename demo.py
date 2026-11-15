@@ -14,7 +14,7 @@ from motion import HOME, Motion, SOAP_OFFSET
 from vision import soap_centroid, pixel_on_plane
 from camera_preview import rgb_png
 from viewer_controls import EarlyBotsViewerControls
-from grasp_supervisor import GraspSupervisor
+from recovery import RecoveryManager
 from physical_grasp import (ContactMonitor, PhysicalMotion, SOAP_TOP_Z,
                             run_contact_smoke, step_physical)
 
@@ -51,6 +51,7 @@ class State:
             progress=0, soap_in_tray=False, vision_enabled=False,
             physical_grasp=False, contact_left=False, contact_right=False,
             task_status="idle", failure_reason=None, grasp_verified=False,
+            attempt=0, max_attempts=2, retry_positions=[],
             vision_detected=False, observed_soap_xy=None, camera_ready=False,
             viewer_url=f"http://127.0.0.1:{port}/"
         )
@@ -201,6 +202,8 @@ def main():
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--check-model", action="store_true")
     parser.add_argument("--smoke-test", action="store_true")
+    parser.add_argument("--inject-drop-once", action="store_true",
+                        help="test only: open jaws during first transport to demonstrate retry")
     parser.add_argument("--physical-grasp", action="store_true",
                         help="simulate two motorized physical jaws; never teleport soap")
     parser.add_argument("--visual-servo", action="store_true",
@@ -224,6 +227,8 @@ def main():
         parser.error("Control and viewer ports must be different")
     if args.soap_xy and not args.visual_servo:
         parser.error("--soap-xy requires --visual-servo so that the pick target is observed")
+    if args.inject_drop_once and not args.physical_grasp:
+        parser.error("--inject-drop-once requires --physical-grasp")
 
     from mujoco.studio import app as studio_app
     from mujoco.studio import launch_web, messages, plugin, sim, viewer_protocol
@@ -242,7 +247,7 @@ def main():
     data = mujoco.MjData(model)
     motion = PhysicalMotion() if args.physical_grasp else Motion()
     monitor = ContactMonitor(model) if args.physical_grasp else None
-    supervisor = GraspSupervisor() if args.physical_grasp else None
+    recovery = RecoveryManager() if args.physical_grasp else None
     qadr, vadr = soap_joint_addresses(model)
     reset(model, data, motion)
     set_initial_soap(model, data, qadr, args.soap_xy)
@@ -270,6 +275,8 @@ def main():
     print("Use the EarlyBots | Robot commands panel INSIDE the 3D WebViewer for Run/Restart/Reset/Pause.")
     panel_paused = False
     vision_tick = 0
+    fault_active = False
+    fault_triggered = False
     try:
         with launch_web.launch(cfg, plugins=[studio_app.App(), controls, embedded_controls]) as viewer:
             if not args.no_browser:
@@ -289,20 +296,24 @@ def main():
                         panel_paused = not panel_paused
                     elif own and cmd == "reset":
                         reset(model, data, motion)
-                        if supervisor is not None:
-                            supervisor.reset()
+                        if recovery is not None:
+                            recovery.reset()
                         set_initial_soap(model, data, qadr, args.soap_xy)
                         state.publish(vision_detected=False, observed_soap_xy=None)
                         panel_paused = False
                         controls.paused = False
+                        fault_active = False
+                        fault_triggered = False
                     elif own and cmd == "start":
                         reset(model, data, motion)
-                        if supervisor is not None:
-                            supervisor.start()
+                        if recovery is not None:
+                            recovery.start()
                         set_initial_soap(model, data, qadr, args.soap_xy)
                         panel_paused = False
                         controls.paused = False
                         vision_tick = 0
+                        fault_active = False
+                        fault_triggered = False
                         motion.start()
                         if renderer is not None:
                             xy = observe_soap(
@@ -316,50 +327,82 @@ def main():
                                 # visual-servo mode cannot see the soap.
                                 motion.reset()
                                 motion.label = "Savon non détecté : mouvement annulé"
-                                if supervisor is not None:
-                                    supervisor.fail("Savon non détecté")
+                                if recovery is not None:
+                                    recovery.fail_terminal("Savon non détecté", motion)
                 paused = panel_paused or controls.paused
                 if not paused:
                     if own:
                         vision_tick += 1
                         if (renderer is not None and vision_tick %
                                 (10 if motion.running and motion.index < 2 else 20) == 0):
-                            xy = observe_soap(model, data, motion, renderer, camera_id, state)
+                            xy = observe_soap(
+                                model, data, motion, renderer, camera_id, state,
+                                SOAP_TOP_Z if args.physical_grasp else 0.866,
+                            )
                             state.publish(vision_detected=xy is not None,
                                           observed_soap_xy=xy)
                         if args.physical_grasp:
-                            step_physical(model, data, motion)
+                            if (args.inject_drop_once and not fault_triggered
+                                    and recovery.attempt == 1 and motion.index == 4
+                                    and motion.elapsed >= 0.25):
+                                fault_active = True
+                                fault_triggered = True
+                            step_physical(
+                                model, data, motion,
+                                force_open=fault_active and recovery.status == "running",
+                            )
                         else:
                             step(model, data, motion, qadr, vadr)
                     else:
                         mujoco.mj_step(model, data)
                 contact_left, contact_right = (monitor.contacts(data) if own and monitor else (False, False))
-                if own and supervisor is not None:
-                    soap_z = float(data.qpos[qadr + 2])
-                    result = supervisor.observe(
-                        phase_index=motion.index,
-                        finished=motion.finished,
-                        soap_z=soap_z,
+                if own and recovery is not None and not paused:
+                    xyz = tuple(float(v) for v in data.qpos[qadr:qadr + 3])
+                    linear_velocity = tuple(float(v) for v in data.qvel[vadr:vadr + 3])
+                    needs_observation = recovery.after_step(
+                        motion=motion,
+                        soap_xyz=xyz,
+                        linear_velocity=linear_velocity,
                         both_contacts=contact_left and contact_right,
                         in_tray=soap_in_tray(data, qadr, False),
-                        dt=float(model.opt.timestep) if not paused else 0.0,
+                        dt=float(model.opt.timestep),
                     )
-                    if result.status == "failed" and motion.running:
-                        motion.running = False
-                        motion.finished = False
-                        motion.label = "Échec : " + result.failure_reason
+                    if recovery.status != "running":
+                        fault_active = False
+                    if needs_observation:
+                        if renderer is not None:
+                            observed = observe_soap(
+                                model, data, motion, renderer, camera_id, state, SOAP_TOP_Z
+                            )
+                            state.publish(
+                                vision_detected=observed is not None,
+                                observed_soap_xy=observed,
+                            )
+                        else:
+                            # Simulation-only fallback: world position, never
+                            # used when camera feedback is enabled.
+                            observed = xyz[:2]
+                        recovery.restart_at(
+                            motion=motion,
+                            palm_xyz=tuple(float(v) for v in data.mocap_pos[0]),
+                            soap_xy=observed,
+                        )
                 state.publish(
-                    task_status=(supervisor.outcome.status if supervisor else "scripted"),
-                    failure_reason=(supervisor.outcome.failure_reason if supervisor else None),
-                    grasp_verified=(supervisor.outcome.grasp_verified if supervisor else False),
+                    task_status=(recovery.status if recovery else "scripted"),
+                    failure_reason=(recovery.last_error if recovery else None),
+                    grasp_verified=(recovery.grasp_verified if recovery else False),
+                    attempt=(recovery.attempt if recovery else 0),
+                    max_attempts=(recovery.max_attempts if recovery else 0),
+                    retry_positions=(recovery.retry_positions if recovery else []),
                     contact_left=contact_left, contact_right=contact_right,
                     phase=motion.label if own else "Autre modèle chargé : relancer demo.py",
-                    running=motion.running if own else False,
+                    running=(motion.running or recovery.status == "settling")
+                    if own and recovery else (motion.running if own else False),
                     holding=bool(contact_left and contact_right and data.qpos[qadr + 2] > 0.88)
                     if own and args.physical_grasp else (motion.holding if own else False),
                     paused=paused,
                     progress=motion.progress if own else 0,
-                    soap_in_tray=soap_in_tray(data, qadr, False if supervisor else motion.holding) if own else False,
+                    soap_in_tray=soap_in_tray(data, qadr, False if recovery else motion.holding) if own else False,
                 )
                 period = model.opt.timestep * 100.0 / max(1.0, controls.speed)
                 time.sleep(max(0.0, period - (time.perf_counter() - tick)))
