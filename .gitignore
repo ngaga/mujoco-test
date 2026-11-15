@@ -5,3 +5,6 @@ __pycache__/
 .pytest_cache/
 .idea/
 .vscode/
+
+# Local randomized MuJoCo benchmark outputs
+robustness_report*.json
