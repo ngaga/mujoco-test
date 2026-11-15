@@ -29,7 +29,8 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(manager.status, "settling")
         self.assertFalse(motion.running)
         ready = False
-        for _ in range(350):
+        for _ in range(1500):
+            motion.advance(0.002)
             ready = manager.after_step(
                 motion=motion, soap_xyz=(-0.22, 0.07, 0.812),
                 linear_velocity=(0.0, 0.0, 0.0),
@@ -54,7 +55,8 @@ class RecoveryTests(unittest.TestCase):
     def test_second_failure_is_terminal_without_third_attempt(self):
         motion, manager = self.new_running()
         self.induce_failure(motion, manager)
-        for _ in range(350):
+        for _ in range(1500):
+            motion.advance(0.002)
             ready = manager.after_step(
                 motion=motion, soap_xyz=(-0.20, 0.0, 0.812),
                 linear_velocity=(0.0, 0.0, 0.0),
@@ -92,7 +94,8 @@ class RecoveryTests(unittest.TestCase):
     def test_missing_camera_observation_does_not_fallback_to_truth(self):
         motion, manager = self.new_running()
         self.induce_failure(motion, manager)
-        for _ in range(350):
+        for _ in range(1500):
+            motion.advance(0.002)
             ready = manager.after_step(
                 motion=motion, soap_xyz=(-0.2, 0.0, 0.812),
                 linear_velocity=(0.0, 0.0, 0.0),
