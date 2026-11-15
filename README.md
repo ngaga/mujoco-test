@@ -6,6 +6,15 @@ A soap bar starts outside a hotel amenities tray containing a toothbrush and too
 
 **Important:** The default demo remains a scripted trajectory with a kinematic soap attachment. The optional `--physical-grasp` mode uses motorized jaws and real contacts, but **neither mode is autonomous or safety-certified**.
 
+## Independent pretrained SO-101 VLA measurement
+
+We reproduced the author's SO-101 pick/place evaluation with the real
+published SmolVLA checkpoint, no retraining. **EarlyBots measured 15/20
+successes (75%)** on Ubuntu CPU; the original author reports 18/20 (90%).
+All five failed episodes hit the 240-action limit and did not place the
+block. See [the full protocol and results](vla/RESULTS.md) and the raw
+GitHub Actions run #65, not the model card alone.
+
 ## Actual SO-101 MuJoCo VLA evaluation (pretrained; no training)
 
 **New experiment:** `vla/run_so101.py` uses the author's *matching*
