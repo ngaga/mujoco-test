@@ -13,6 +13,10 @@ yellow hotel soap or EarlyBots' floating XYZ palm.
 
 ## Reproduce on your Apple Silicon Mac
 
+For a compact installation, run `bash vla/setup_so101.sh` once. This
+bootstraps the pinned environment and LeRobot in `.venv-vla`. Alternatively,
+perform the commands below manually.
+
 From the EarlyBots repository root, set up a **separate** Python 3.12
 environment (do not overwrite your current .venv for the hotel demo):
 
