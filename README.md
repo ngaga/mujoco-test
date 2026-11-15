@@ -21,8 +21,10 @@ In visual mode we **do not** silently use MuJoCo's soap coordinates if
 the camera cannot detect it. Failure now distinguishes out-of-reach,
 unstable and visually undetected cases.
 
-Camera calibration is tested for both scenes, and the macOS CI includes a
-rendered-camera recovery attempt with a deliberately dropped soap.
+Camera calibration is tested for both scenes. Ubuntu CI uses Mesa software
+rendering for an actual RGB-camera recovery test with a deliberately dropped
+soap, while macOS CI checks the model, grasp physics and WebViewer. A real
+browser rendering check is still useful on your Mac.
 
 ## Automatic recovery after a failed physical grasp
 
