@@ -37,7 +37,7 @@ jobs:
         run: python -m pip install -r requirements.txt
 
       - name: Check Python syntax
-        run: python -m compileall -q demo.py motion.py vision.py camera_preview.py viewer_controls.py physical_grasp.py grasp_supervisor.py recovery.py robustness.py rgb_benchmark.py tests
+        run: python -m compileall -q demo.py motion.py vision.py camera_preview.py viewer_controls.py physical_grasp.py grasp_supervisor.py recovery.py robustness.py rgb_benchmark.py imitation.py tests
 
       - name: Run unit and regression tests
         run: python -m unittest discover -s tests -v
@@ -97,6 +97,24 @@ jobs:
         with:
           name: rgb-robustness-ubuntu
           path: rgb_robustness_report.json
+          if-no-files-found: error
+
+      - name: Train a visual-conditioned behavioral cloning policy and score held-out physics (Ubuntu)
+        if: runner.os == 'Linux'
+        env:
+          MUJOCO_GL: osmesa
+          PYOPENGL_PLATFORM: osmesa
+        run: |
+          python imitation.py both --train-demos 24 --test-demos 12 \
+            --seed 2026 --save-images --output-dir imitation_runs
+          python -c "import json; r=json.load(open('imitation_runs/evaluation.json')); assert r['learned_successes'] > 0, 'Learned policy did not actually pick and place any held-out soap'"
+
+      - name: Upload teacher demonstrations, learned policy and held-out results
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: earlybots-imitation-first-run
+          path: imitation_runs/
           if-no-files-found: error
 
       - name: Boot headless WebViewer and exercise HTTP controls
