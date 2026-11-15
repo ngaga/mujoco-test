@@ -14,3 +14,7 @@ rgb_robustness_report*.json
 
 # Generated teacher demonstrations and trained policy
 imitation_runs/
+
+# Optional downloaded VLA checkpoints and separate Mac environment
+vla/checkpoints/
+.venv-vla/
