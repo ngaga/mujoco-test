@@ -36,6 +36,44 @@ class PhysicalMotion(Motion):
     def reset(self):
         super().reset()
         self.phases = PHYSICAL_PHASES
+        self.recovering = False
+
+    def start_recovery_retraction(self):
+        """Park the gripper away from the overhead camera's view of the soap.
+
+        The target moves smoothly and only the commanded palm is changed.
+        The fallen soap remains a freely simulated MuJoCo body.
+        """
+        self.recovering = True
+
+    @property
+    def parked_for_observation(self):
+        return (not self.recovering
+                and sum((a - b) ** 2 for a, b in zip(self.position, HOME))
+                < 0.008 ** 2)
+
+    def advance(self, dt):
+        if self.recovering:
+            if dt < 0:
+                raise ValueError("dt must be nonnegative")
+            # Slow bounded retraction away from the fallen object. Lift first,
+            # then move laterally so the fingers don't brush the soap.
+            target = (self.position[0], self.position[1], HOME[2])
+            if abs(self.position[2] - HOME[2]) < 0.008:
+                target = HOME
+            max_distance = 0.35 * dt
+            distance = sum((a - b) ** 2 for a, b in zip(self.position, target)) ** 0.5
+            if distance <= max_distance:
+                self.position = target
+            else:
+                fraction = max_distance / distance
+                self.position = tuple(a + fraction * (b - a)
+                                      for a, b in zip(self.position, target))
+            if sum((a - b) ** 2 for a, b in zip(self.position, HOME)) < 0.008 ** 2:
+                self.position = HOME
+                self.recovering = False
+            return
+        super().advance(dt)
 
     def retry_from(self, palm_xyz, soap_xy):
         """Replan approach to the soap's *current* location.
