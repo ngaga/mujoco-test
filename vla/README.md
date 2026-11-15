@@ -88,9 +88,10 @@ This is a small integration trial (1 episode), not a statistically reliable
   and renders both cameras, checks six articulated actuators, and steps real
   physics with their control targets.
 
-**An actual SmolVLA pick-place success remains unverified until the
-20-episode rollout (or at least one episode) completes.** The 18/20 rate
-is the original author's result, not an EarlyBots experiment.
+**An actual SmolVLA pick-place result must come from the GitHub JSON
+artifact or an observed Mac rollout.** The 18/20 rate is the original
+author's result, not an EarlyBots experiment. One episode is an integration
+check, not a measured success rate.
 
 ## Next integration milestone
 
