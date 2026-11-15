@@ -80,11 +80,11 @@ class ContactMonitor:
         return left, right
 
 
-def step_physical(model, data, motion):
-    """Never touch soap.qpos/qvel. Let MuJoCo resolve all contact forces."""
+def step_physical(model, data, motion, force_open=False):
+    """Advance physics with real contacts and optional test-only forced drop."""
     motion.advance(model.opt.timestep)
     data.mocap_pos[0] = motion.position
-    closed = 2 <= motion.index <= 5 and motion.running
+    closed = 2 <= motion.index <= 5 and motion.running and not force_open
     data.ctrl[:] = JAW_CLOSED if closed else JAW_OPEN
     mujoco.mj_step(model, data)
 
