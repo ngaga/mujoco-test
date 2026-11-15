@@ -37,6 +37,7 @@ class RecoveryManager:
         self._stable = 0.0
         self._last_observation = -OBSERVATION_INTERVAL
         self.ready_for_observation = False
+        self.last_recovery_issue = None
         self.retry_positions = []
 
     def start(self):
@@ -54,11 +55,28 @@ class RecoveryManager:
         motion.finished = False
         motion.label = "Échec : " + reason
 
-    def _recoverable(self, xyz, linear_velocity):
+    def _recoverability_issue(self, xyz, linear_velocity):
         x, y, z = xyz
-        return (MIN_X <= x <= MAX_X and MIN_Y <= y <= MAX_Y
-                and abs(z - SOAP_REST_Z) <= 0.03
-                and max(abs(v) for v in linear_velocity) < 0.04)
+        if not (MIN_X <= x <= MAX_X and MIN_Y <= y <= MAX_Y):
+            return f"Savon hors de portée : x={x:.3f}, y={y:.3f}"
+        if abs(z - SOAP_REST_Z) > 0.03:
+            return f"Savon non posé à plat : z={z:.3f}"
+        if max(abs(v) for v in linear_velocity) >= 0.04:
+            return "Savon encore en mouvement"
+        return None
+
+    def note_visual_observation(self, xy):
+        """Record whether camera feedback actually saw a usable soap target."""
+        if self.status != "settling":
+            return
+        if xy is None:
+            self.last_recovery_issue = "Savon non détecté par la caméra"
+        elif not (MIN_X <= xy[0] <= MAX_X and MIN_Y <= xy[1] <= MAX_Y):
+            self.last_recovery_issue = (
+                f"Savon détecté hors de portée : x={xy[0]:.3f}, y={xy[1]:.3f}"
+            )
+        else:
+            self.last_recovery_issue = None
 
     def after_step(self, *, motion, soap_xyz, linear_velocity,
                    both_contacts, in_tray, dt):
@@ -84,7 +102,8 @@ class RecoveryManager:
                     )
                 else:
                     self.status = "settling"
-                    motion.label = "Prise ratée : récupération du savon"
+                    motion.label = "Prise ratée : dégagement de la caméra"
+                    motion.start_recovery_retraction()
                     self._waiting = 0.0
                     self._stable = 0.0
                     self._last_observation = -OBSERVATION_INTERVAL
@@ -93,18 +112,19 @@ class RecoveryManager:
         if self.status != "settling":
             return False
         self._waiting += dt
-        if self._recoverable(soap_xyz, linear_velocity):
+        issue = self._recoverability_issue(soap_xyz, linear_velocity)
+        if issue is None:
             self._stable += dt
         else:
             self._stable = 0.0
+            self.last_recovery_issue = issue
         if self._waiting >= RECOVERY_TIMEOUT:
-            self.fail_terminal(
-                "Savon non récupérable : hors de portée, instable ou non détecté",
-                motion,
-            )
+            reason = self.last_recovery_issue or "Savon non récupérable : aucune observation valide"
+            self.fail_terminal(reason, motion)
             return False
         self.ready_for_observation = (
-            self._waiting >= MIN_SETTLE_TIME
+            motion.parked_for_observation
+            and self._waiting >= MIN_SETTLE_TIME
             and self._stable >= STABLE_HOLD_TIME
             and self._waiting - self._last_observation >= OBSERVATION_INTERVAL
         )
