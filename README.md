@@ -6,6 +6,24 @@ A soap bar starts outside a hotel amenities tray containing a toothbrush and too
 
 **Important:** The default demo remains a scripted trajectory with a kinematic soap attachment. The optional `--physical-grasp` mode uses motorized jaws and real contacts, but **neither mode is autonomous or safety-certified**.
 
+## Angled camera for easier observation and recovery
+
+The RGB camera is now **offset from the back of the counter and tilted
+about 26 degrees** rather than pointing straight down. The same named
+`overhead` camera feeds visual servoing and the right-hand preview.
+The calibrated 3D camera matrix is used for image-to-world projection; the
+camera's old top-down position is no longer assumed.
+
+During a failed-grasp recovery the gripper first **retracts to its home
+position**, clear of the view of the dropped soap. Only after both the
+soap has settled and the gripper is parked do we request a new RGB observation.
+In visual mode we **do not** silently use MuJoCo's soap coordinates if
+the camera cannot detect it. Failure now distinguishes out-of-reach,
+unstable and visually undetected cases.
+
+Camera calibration is tested for both scenes, and the macOS CI includes a
+rendered-camera recovery attempt with a deliberately dropped soap.
+
 ## Automatic recovery after a failed physical grasp
 
 In `--physical-grasp` mode the robot now makes **at most two attempts**. If
