@@ -76,8 +76,11 @@ the model's own text or by pretending its outputs are correct.
 
 ## What the tests establish
 
-The standard EarlyBots GitHub CI **does not download or execute the 907MB
-VLA**: that would impose heavyweight inference on every PR. It verifies:
+The EarlyBots PR CI includes a **one-episode real pretrained VLA evaluation**
+on CPU in Ubuntu/Mesa. It downloads the actual checkpoint and uses the
+original SO-101 environment, uploading a JSON artifact with success/failure.
+This is a small integration trial (1 episode), not a statistically reliable
+20-episode benchmark. The CI also verifies:
 - Data contract: the model gets six joint states, two rendered RGB cameras
   and the exact task instruction, and returns six finite joint targets.
 - A stub-policy closed loop actually sends commands to motor actuators.
