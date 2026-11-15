@@ -31,11 +31,32 @@ PHYSICAL_PHASES = tuple(
 
 
 class PhysicalMotion(Motion):
-    """Same guided trajectory, with the drop height corrected for the tray."""
+    """Guided path with physically actuated pads and a non-resetting retry."""
 
     def reset(self):
         super().reset()
         self.phases = PHYSICAL_PHASES
+
+    def retry_from(self, palm_xyz, soap_xy):
+        """Replan approach to the soap's *current* location.
+
+        Only the motion controller is reset. MuJoCo MjData (including the
+        free soap body, contact state and joints) is never reset or teleported.
+        The current palm command provides a continuous first path waypoint.
+        """
+        if len(palm_xyz) != 3 or len(soap_xy) != 2:
+            raise ValueError("Expected palm XYZ and soap XY")
+        dx, dy = soap_xy[0] - PHYSICAL_PHASES[0].target[0], soap_xy[1] - PHYSICAL_PHASES[0].target[1]
+        self.reset()
+        self.phases = tuple(
+            replace(p, target=(p.target[0] + dx, p.target[1] + dy, p.target[2]))
+            if i < 4 else p
+            for i, p in enumerate(PHYSICAL_PHASES)
+        )
+        self.position = tuple(float(v) for v in palm_xyz)
+        self.from_position = self.position
+        self.running = True
+        self.label = self.phases[0].name
 
 
 class ContactMonitor:
@@ -59,11 +80,11 @@ class ContactMonitor:
         return left, right
 
 
-def step_physical(model, data, motion):
-    """Never touch soap.qpos/qvel. Let MuJoCo resolve all contact forces."""
+def step_physical(model, data, motion, force_open=False):
+    """Advance physics with real contacts and optional test-only forced drop."""
     motion.advance(model.opt.timestep)
     data.mocap_pos[0] = motion.position
-    closed = 2 <= motion.index <= 5 and motion.running
+    closed = 2 <= motion.index <= 5 and motion.running and not force_open
     data.ctrl[:] = JAW_CLOSED if closed else JAW_OPEN
     mujoco.mj_step(model, data)
 
