@@ -6,6 +6,38 @@ A soap bar starts outside a hotel amenities tray containing a toothbrush and too
 
 **Important:** The default demo remains a scripted trajectory with a kinematic soap attachment. The optional `--physical-grasp` mode uses motorized jaws and real contacts, but **neither mode is autonomous or safety-certified**.
 
+## Reproducible physical robustness benchmark
+
+Use the headless physical MuJoCo model to run **100 seeded initial soap
+positions** with exactly the same cases **with** and **without** automatic
+recovery. Fifty of the 100 scenarios deliberately open the jaws during
+the first transport to stress failure handling.
+
+    python robustness.py --trials 100 --seed 2026 --output robustness_report.json
+
+The JSON report includes every initial pose, whether a fault was injected,
+task outcome, attempts used, actual final soap pose, failure reason, and
+paired aggregate success rates (clean cases and forced-drop cases separated).
+For reproducibility, running the same seed and model gives the same scenarios.
+
+The benchmark deliberately uses **MuJoCo ground-truth XY for approach and
+retry planning in both policies**, and the soap starts in a conservative,
+reachable rectangle (X: -0.32 to -0.22 m, Y: -0.045 to +0.055 m).
+Randomization occurs **only before the simulation begins**. There is
+no soap teleportation during handling or regrasp.
+
+These numbers measure **physics + scripted control + recovery**, not visual
+perception or generality over arbitrary soap shapes and rotations. RGB
+camera robustness is a different experiment. A comparison of recovery
+policies on identical trials should not be interpreted as a production
+robot reliability guarantee.
+
+GitHub CI runs all 100 paired positions on Ubuntu and a shorter 8-position
+cross-platform check on macOS; both upload a detailed JSON report artifact.
+The CI tests enforce physically verified outcomes and bounded attempts,
+but do not impose an invented success-rate threshold. Failures remain in
+the report to guide improvements.
+
 ## Angled camera for easier observation and recovery
 
 The RGB camera is now **offset from the back of the counter and tilted
