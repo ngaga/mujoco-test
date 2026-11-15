@@ -11,3 +11,6 @@ robustness_report*.json
 
 # RGB camera domain-randomization outputs
 rgb_robustness_report*.json
+
+# Generated teacher demonstrations and trained policy
+imitation_runs/
