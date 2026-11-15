@@ -119,7 +119,7 @@ def check_environment(seed=123):
             raise RuntimeError(f"Wrong SO-101 actuator count: {env.model.nu}")
         for joint in ("Rotation", "Pitch", "Elbow", "Wrist_Pitch",
                       "Wrist_Roll", "Jaw"):
-            env.model.joint(j)  # raises for an incompatible robot
+            env.model.joint(joint)  # raises for an incompatible robot
         state, images = validate_observation(env.reset())
         obs2 = env.step(env.data.ctrl[:ACTION_DIM].copy())
         state2, images2 = validate_observation(obs2)
