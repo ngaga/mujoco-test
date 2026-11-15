@@ -8,3 +8,6 @@ __pycache__/
 
 # Local randomized MuJoCo benchmark outputs
 robustness_report*.json
+
+# RGB camera domain-randomization outputs
+rgb_robustness_report*.json

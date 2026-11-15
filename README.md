@@ -6,6 +6,48 @@ A soap bar starts outside a hotel amenities tray containing a toothbrush and too
 
 **Important:** The default demo remains a scripted trajectory with a kinematic soap attachment. The optional `--physical-grasp` mode uses motorized jaws and real contacts, but **neither mode is autonomous or safety-certified**.
 
+## Camera-guided robustness and controlled domain randomization
+
+The new `rgb_benchmark.py` tests **real RGB localization**, not MuJoCo
+pose truth, for the first pickup, visual servo corrections and any retry.
+It uses the calibrated oblique camera and yellow-soap segmentation currently
+used by the live bathroom demo. The simulated soap pose remains available
+**only to the outcome checker and evaluation metrics**, never to the RGB
+planner.
+
+Run on macOS with a graphical desktop (MuJoCo offscreen CGL requires one):
+
+    mjpython rgb_benchmark.py --trials 100 --stress-trials 24 --seed 2026 \
+      --output rgb_robustness_report.json
+
+On Linux with OSMesa installed:
+
+    MUJOCO_GL=osmesa PYOPENGL_PLATFORM=osmesa python rgb_benchmark.py \
+      --trials 100 --stress-trials 24 --seed 2026
+
+The first 100 scenarios use the **exact same** positions and 50 forced
+drops as `robustness.py` (the ground-truth reference). Each scenario is
+run twice: one attempt without recovery and up to two attempts with recovery.
+The additional 24 out-of-distribution (OOD) trials cover four categories,
+six cases each: yaw ±20°, mass 0.18–0.42 kg, ellipsoidal shape, and mixed
+yaw/mass/ellipsoid. Half deliberately release the soap during transport.
+The sizes remain 150 × 100 × 44 mm. Shape and density are set when MuJoCo
+compiles the model, so mass/inertia/collisions are physical rather than
+visual-only changes. None of the experimental stress variations are claimed
+to represent all real soaps.
+
+The report contains *all attempts*, initial and retry image estimates,
+image counts, camera localization errors (measured against truth **for
+reporting only**), collision/placement success, failures and totals by
+variation category. Failures are not filtered or silently replaced with
+ground-truth coordinates. An undetected soap counts as failure.
+
+On GitHub Actions, the Linux/Mesa job runs the full RGB 100+24-scenario
+benchmark and uploads `rgb_robustness_report.json`. macOS CI checks
+non-rendering model, geometry and scenario regression tests because the
+hosted macOS runner lacks a usable offscreen CGL context. The benchmark
+remains a simulation, not a real hardware or safety claim.
+
 ## Reproducible physical robustness benchmark
 
 Use the headless physical MuJoCo model to run **100 seeded initial soap
@@ -239,6 +281,8 @@ The smoke test runs one scripted motion cycle and checks the resulting soap posi
 - grasp_supervisor.py: failure detection and verified physical outcome
 - recovery.py: two-attempt non-resetting recovery and replan logic
 - tests/recovery_smoke.py: inject one drop and verify second pickup
+- robustness.py: seeded ground-truth baseline benchmark
+- rgb_benchmark.py: paired RGB-only localization plus shape/mass/yaw study
 - static/index.html: self-contained command page
 - tests/test_motion.py: unit tests for the script
 
