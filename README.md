@@ -6,6 +6,41 @@ A soap bar starts outside a hotel amenities tray containing a toothbrush and too
 
 **Important:** The default demo remains a scripted trajectory with a kinematic soap attachment. The optional `--physical-grasp` mode uses motorized jaws and real contacts, but **neither mode is autonomous or safety-certified**.
 
+## First visual-conditioned behavioral cloning policy (not yet VLA)
+
+Our first **learned action policy** is now trained from successful MuJoCo
+teacher demonstrations. The teacher runs the existing scripted physical
+grasp and saves the **real RGB camera image, detected soap XY, 20ms motor
+commands** (palm XYZ and jaw open/close), final free-soap pose and success
+status. A saved compressed dataset and model can be inspected and reused.
+
+    mjpython imitation.py both --train-demos 24 --test-demos 12 \
+      --seed 2026 --save-images --output-dir imitation_runs
+
+The learner is a small supervised **time-knot linear policy**. Training
+fits its weights by least squares from successful demonstrations. Its inputs
+are the initial soap location extracted **from RGB pixels** and elapsed task
+time; its outputs directly command the palm and both finger actuators. On
+evaluation, **no scripted Motion controller supplies actions**, and no
+ground-truth soap coordinates are used for control.
+
+The same held-out positions, with a different random seed from the training
+positions, are run twice: original scripted teacher and learned student.
+MuJoCo free-soap position and pad contact data are used only to score real
+physics grasp, lifting and placement. The full results are written to
+`imitation_runs/evaluation.json`. The dataset and policy are saved as
+`teacher_dataset.npz` and `learned_policy.npz`, with optional initial
+RGB frames in `teacher_images/`. GitHub Ubuntu/Mesa CI trains the model,
+tests 12 held-out soap positions and uploads all artifacts.
+
+**Limitations:** this is trajectory *distillation*, not an end-to-end VLA.
+A human-written color detector extracts the image feature. The learned
+policy uses task time and an initially observed XY, not a continual stream
+of RGB images; if the soap moves unexpectedly after grasp it does not
+automatically replan. No language input, general object detection, tactile
+feedback, force-limited real arm or safety certification is implied. We
+must measure held-out physical success before considering richer models.
+
 ## Camera-guided robustness and controlled domain randomization
 
 The new `rgb_benchmark.py` tests **real RGB localization**, not MuJoCo
@@ -283,6 +318,7 @@ The smoke test runs one scripted motion cycle and checks the resulting soap posi
 - tests/recovery_smoke.py: inject one drop and verify second pickup
 - robustness.py: seeded ground-truth baseline benchmark
 - rgb_benchmark.py: paired RGB-only localization plus shape/mass/yaw study
+- imitation.py: collect successful RGB teacher demonstrations, train a small action policy and evaluate held-out grasping
 - static/index.html: self-contained command page
 - tests/test_motion.py: unit tests for the script
 
