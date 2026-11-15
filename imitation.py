@@ -173,7 +173,7 @@ class ImitationPolicy:
             alpha = (t - self.times[lo]) / (self.times[hi] - self.times[lo])
             weights = (1 - alpha) * self.weights[lo] + alpha * self.weights[hi]
         prediction = feature @ weights
-        return tuple(float(v) for v in prediction[:3]), bool(prediction[3] >= 0.5)
+        return tuple(float(v) for v in prediction[:3]), bool(prediction[3] >= 0.5 - 1e-12)
 
     def save(self, path):
         path = Path(path)
