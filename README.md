@@ -6,6 +6,22 @@ A soap bar starts outside a hotel amenities tray containing a toothbrush and too
 
 **Important:** The default demo remains a scripted trajectory with a kinematic soap attachment. The optional `--physical-grasp` mode uses motorized jaws and real contacts, but **neither mode is autonomous or safety-certified**.
 
+## Task outcome verification (physical grasp)
+
+In `--physical-grasp` mode, the robot now tracks real MuJoCo evidence:
+the soap must rise at least 8 cm while both jaws contact it, remain elevated
+during transport, and end inside the tray. The status panel shows **Prise
+confirmée**, **Résultat** and a reason when the operation fails.
+
+When pickup is lost, motion stops and the jaws open instead of continuing a
+fake successful pick-and-place. This currently **detects and stops** failures:
+automatic recovery/regrasp from a fallen soap is a separate next milestone.
+You can still use **Run / Restart** to reset and try again.
+
+The supervisor reads MuJoCo internal contact and object position data as a
+simulation oracle, *not* a learned vision detector. Real-world confirmation
+must eventually use onboard sensors (vision, fingers, force estimates).
+
 ## Experimental contact-only physical grasp
 
 In the same unified workspace you already use, opt into the physical scene:
@@ -137,6 +153,7 @@ The smoke test runs one scripted motion cycle and checks the resulting soap posi
 - models/bathroom.xml: original kinematic scene
 - models/bathroom_physical.xml: actuated two-jaw contact scene
 - physical_grasp.py: physically driven grip and contact acceptance test
+- grasp_supervisor.py: failure detection and verified physical outcome
 - static/index.html: self-contained command page
 - tests/test_motion.py: unit tests for the script
 

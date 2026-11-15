@@ -14,6 +14,7 @@ from motion import HOME, Motion, SOAP_OFFSET
 from vision import soap_centroid, pixel_on_plane
 from camera_preview import rgb_png
 from viewer_controls import EarlyBotsViewerControls
+from grasp_supervisor import GraspSupervisor
 from physical_grasp import (ContactMonitor, PhysicalMotion, SOAP_TOP_Z,
                             run_contact_smoke, step_physical)
 
@@ -49,6 +50,7 @@ class State:
             phase="Prêt", running=False, holding=False, paused=False,
             progress=0, soap_in_tray=False, vision_enabled=False,
             physical_grasp=False, contact_left=False, contact_right=False,
+            task_status="idle", failure_reason=None, grasp_verified=False,
             vision_detected=False, observed_soap_xy=None, camera_ready=False,
             viewer_url=f"http://127.0.0.1:{port}/"
         )
@@ -240,6 +242,7 @@ def main():
     data = mujoco.MjData(model)
     motion = PhysicalMotion() if args.physical_grasp else Motion()
     monitor = ContactMonitor(model) if args.physical_grasp else None
+    supervisor = GraspSupervisor() if args.physical_grasp else None
     qadr, vadr = soap_joint_addresses(model)
     reset(model, data, motion)
     set_initial_soap(model, data, qadr, args.soap_xy)
@@ -286,12 +289,16 @@ def main():
                         panel_paused = not panel_paused
                     elif own and cmd == "reset":
                         reset(model, data, motion)
+                        if supervisor is not None:
+                            supervisor.reset()
                         set_initial_soap(model, data, qadr, args.soap_xy)
                         state.publish(vision_detected=False, observed_soap_xy=None)
                         panel_paused = False
                         controls.paused = False
                     elif own and cmd == "start":
                         reset(model, data, motion)
+                        if supervisor is not None:
+                            supervisor.start()
                         set_initial_soap(model, data, qadr, args.soap_xy)
                         panel_paused = False
                         controls.paused = False
@@ -309,6 +316,8 @@ def main():
                                 # visual-servo mode cannot see the soap.
                                 motion.reset()
                                 motion.label = "Savon non détecté : mouvement annulé"
+                                if supervisor is not None:
+                                    supervisor.fail("Savon non détecté")
                 paused = panel_paused or controls.paused
                 if not paused:
                     if own:
@@ -325,7 +334,24 @@ def main():
                     else:
                         mujoco.mj_step(model, data)
                 contact_left, contact_right = (monitor.contacts(data) if own and monitor else (False, False))
+                if own and supervisor is not None:
+                    soap_z = float(data.qpos[qadr + 2])
+                    result = supervisor.observe(
+                        phase_index=motion.index,
+                        finished=motion.finished,
+                        soap_z=soap_z,
+                        both_contacts=contact_left and contact_right,
+                        in_tray=soap_in_tray(data, qadr, False),
+                        dt=float(model.opt.timestep) if not paused else 0.0,
+                    )
+                    if result.status == "failed" and motion.running:
+                        motion.running = False
+                        motion.finished = False
+                        motion.label = "Échec : " + result.failure_reason
                 state.publish(
+                    task_status=(supervisor.outcome.status if supervisor else "scripted"),
+                    failure_reason=(supervisor.outcome.failure_reason if supervisor else None),
+                    grasp_verified=(supervisor.outcome.grasp_verified if supervisor else False),
                     contact_left=contact_left, contact_right=contact_right,
                     phase=motion.label if own else "Autre modèle chargé : relancer demo.py",
                     running=motion.running if own else False,
@@ -333,7 +359,7 @@ def main():
                     if own and args.physical_grasp else (motion.holding if own else False),
                     paused=paused,
                     progress=motion.progress if own else 0,
-                    soap_in_tray=soap_in_tray(data, qadr, motion.holding) if own else False,
+                    soap_in_tray=soap_in_tray(data, qadr, False if supervisor else motion.holding) if own else False,
                 )
                 period = model.opt.timestep * 100.0 / max(1.0, controls.speed)
                 time.sleep(max(0.0, period - (time.perf_counter() - tick)))
