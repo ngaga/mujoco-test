@@ -71,7 +71,10 @@ class Motion:
         """
         if not self.running or self.index > 1:
             return
-        self.target_offset = [xy[0] - SOAP_START[0], xy[1] - SOAP_START[1]]
+        # The active approach may have been replanned to a fallen soap.
+        # Use its own base target rather than the original SOAP_START.
+        self.target_offset = [xy[0] - self.phases[0].target[0],
+                              xy[1] - self.phases[0].target[1]]
 
     def _advance_offset(self, dt: float) -> None:
         # Critical damping, with explicit acceleration and speed limits.
