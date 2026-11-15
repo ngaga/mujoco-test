@@ -18,7 +18,7 @@ jobs:
   smoke:
     name: MuJoCo smoke (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -37,7 +37,7 @@ jobs:
         run: python -m pip install -r requirements.txt
 
       - name: Check Python syntax
-        run: python -m compileall -q demo.py motion.py vision.py camera_preview.py viewer_controls.py physical_grasp.py grasp_supervisor.py recovery.py tests
+        run: python -m compileall -q demo.py motion.py vision.py camera_preview.py viewer_controls.py physical_grasp.py grasp_supervisor.py recovery.py robustness.py rgb_benchmark.py tests
 
       - name: Run unit and regression tests
         run: python -m unittest discover -s tests -v
@@ -80,6 +80,23 @@ jobs:
         with:
           name: robustness-${{ matrix.os }}
           path: robustness_report.json
+          if-no-files-found: error
+
+      - name: Benchmark 100 actual RGB soap locations and 24 shape/mass/yaw variations (Ubuntu)
+        if: runner.os == 'Linux'
+        env:
+          MUJOCO_GL: osmesa
+          PYOPENGL_PLATFORM: osmesa
+        run: |
+          python rgb_benchmark.py --trials 100 --stress-trials 24 --seed 2026 \
+            --output rgb_robustness_report.json --verbose
+
+      - name: Upload complete RGB robustness results
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rgb-robustness-ubuntu
+          path: rgb_robustness_report.json
           if-no-files-found: error
 
       - name: Boot headless WebViewer and exercise HTTP controls
