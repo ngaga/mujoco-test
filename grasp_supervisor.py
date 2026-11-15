@@ -32,6 +32,12 @@ class GraspSupervisor:
         self.reset()
         self.outcome.status = "running"
 
+    def fail(self, reason):
+        if self.outcome.status == "running":
+            self.outcome.status = "failed"
+            self.outcome.failure_reason = reason
+        return self.outcome
+
     def observe(self, *, phase_index, finished, soap_z, both_contacts,
                 in_tray, dt):
         """Consume one MuJoCo physics step and return the current outcome.
