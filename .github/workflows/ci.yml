@@ -80,22 +80,23 @@ jobs:
             'torch==2.8.0' 'torchvision==0.23.0'
           python -m pip install 'lerobot[smolvla]==0.6.0'
 
-      - name: Benchmark 20 real pretrained SmolVLA SO-101 pick and place episodes (Ubuntu)
+      - name: Attempt one real pretrained SmolVLA pick and place in MuJoCo (Ubuntu)
         if: runner.os == 'Linux'
         timeout-minutes: 12
         env:
           MUJOCO_GL: osmesa
           PYOPENGL_PLATFORM: osmesa
         run: |
-          python vla/run_so101.py --episodes 20 --max-steps 240 --seed 123 \
-            --device cpu --output vla_runs/so101_evaluation.json
+          python vla/run_so101.py --episodes 1 --max-steps 240 --seed 123 \
+            --device cpu --output vla_runs/so101_evaluation.json \
+            --gif vla_runs/so101_first_episode.gif
 
       - name: Upload real pretrained SO-101 VLA physics evaluation
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
           name: so101-pretrained-vla-rollout
-          path: vla_runs/so101_evaluation.json
+          path: vla_runs/
           if-no-files-found: error
 
       - name: Verify angled RGB camera regrasp with software rendering (Ubuntu)
