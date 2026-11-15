@@ -75,6 +75,7 @@ progress{width:100%;height:12px;accent-color:#6fdac8}
       <div class="item"><span>Préhension</span><strong id="graspMode">…</strong></div>
       <div class="item"><span>Contacts doigts</span><strong id="fingerContacts">…</strong></div>
       <div class="item"><span>Résultat</span><strong id="taskStatus">…</strong></div>
+      <div class="item"><span>Tentative</span><strong id="attemptStatus">…</strong></div>
       <div class="item"><span>Prise confirmée</span><strong id="graspVerified">…</strong></div>
       <p class="hint" id="failureReason" hidden></p>
       <progress id="progress" value="0" max="100"></progress>
@@ -123,8 +124,9 @@ async function refresh(){
     $("sim").textContent=s.paused?"En pause":s.running?"En mouvement":"Prête";
     $("graspMode").textContent=s.physical_grasp?"Physique (MuJoCo)":"Saisie simulée";
     $("fingerContacts").textContent=s.physical_grasp?((s.contact_left?"G ✓":"G ·")+" / "+(s.contact_right?"D ✓":"D ·")):"Non applicable";
-    const names={idle:"Prêt",running:"En cours",success:"Réussite confirmée",failed:"Échec détecté",scripted:"Démo scriptée"};
+    const names={idle:"Prêt",running:"En cours",settling:"Récupération du savon",success:"Réussite confirmée",failed:"Échec détecté",scripted:"Démo scriptée"};
     $("taskStatus").textContent=names[s.task_status]||s.task_status||"…";
+    $("attemptStatus").textContent=s.physical_grasp?(String(s.attempt||0)+" / "+String(s.max_attempts||2)):"Non applicable";
     $("graspVerified").textContent=s.physical_grasp?(s.grasp_verified?"Oui ✓":"Non"):"Non applicable";
     $("failureReason").hidden=!s.failure_reason;
     $("failureReason").textContent=s.failure_reason||"";
