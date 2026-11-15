@@ -1,3 +1,8 @@
+For the independent EarlyBots result, see [RESULTS.md](RESULTS.md):
+**15/20 physical pick-place successes** on Ubuntu CPU using the pretrained
+model, versus the author's reported 18/20. All raw episode outcomes are
+available in GitHub Actions workflow #65.
+
 # Run the actual pretrained SmolVLA in MuJoCo SO-101
 
 **This is the next stage after checkpoint downloading.** It uses the author's
