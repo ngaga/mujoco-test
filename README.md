@@ -6,6 +6,24 @@ A soap bar starts outside a hotel amenities tray containing a toothbrush and too
 
 **Important:** The default demo remains a scripted trajectory with a kinematic soap attachment. The optional `--physical-grasp` mode uses motorized jaws and real contacts, but **neither mode is autonomous or safety-certified**.
 
+## Pretrained VLA: SmolVLA pick-and-place (experimental)
+
+To avoid developing a VLA ourselves, we selected a real pretrained
+**SmolVLA 450M** pick-and-place model already fine-tuned for a MuJoCo
+SO-ARM100/101 arm:
+
+- Model: https://huggingface.co/ahmedsohail2003/smolvla-so101-pickplace-v2
+- Download/probe script: `vla/fetch_smolvla.py`
+- Mac installation and honest compatibility details: `vla/README.md`
+
+This model was *not trained by EarlyBots*. Its author reports 18/20
+pick-place successes in their own matching MuJoCo robot cell, not in ours.
+We can **download** its existing checkpoint and load it with LeRobot without
+any training. We cannot yet claim to execute its actions in EarlyBots' custom
+floating palm: the learned 6-joint SO-101 action space and two-camera
+observation space differ from our current simulation. A proper SO-101
+reference scene and validated actuator mapping are the next step.
+
 ## First visual-conditioned behavioral cloning policy (not yet VLA)
 
 Our first **learned action policy** is now trained from successful MuJoCo
