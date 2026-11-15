@@ -6,6 +6,38 @@ A soap bar starts outside a hotel amenities tray containing a toothbrush and too
 
 **Important:** The default demo remains a scripted trajectory with a kinematic soap attachment. The optional `--physical-grasp` mode uses motorized jaws and real contacts, but **neither mode is autonomous or safety-certified**.
 
+## Automatic recovery after a failed physical grasp
+
+In `--physical-grasp` mode the robot now makes **at most two attempts**. If
+its grasp supervisor detects a lost soap, it stops moving toward the tray,
+opens the jaws, and waits until the freely simulated soap is stationary on
+the reachable part of the countertop. It then re-plans approach from the
+**current palm pose** to the **new soap location**, without resetting the
+MuJoCo scene or copying soap coordinates into the physics state.
+
+- With `--visual-servo`, retry localization comes from the overhead RGB
+  camera. No invisible ground-truth fallback if the camera cannot see it.
+- Without `--visual-servo`, simulation ground-truth XY is used as an
+  explicitly documented development fallback.
+- A soap that falls off the counter, keeps moving, or cannot be detected
+  results in a terminal failure rather than an unsafe invented grasp.
+- The interface reports **Tentative 1/2**, **Récupération du savon** and
+  **Tentative 2/2**. A new **Run / Restart** still resets the full scene.
+
+To demonstrate an actual failure and automatic retry in the browser, run:
+
+    mjpython demo.py --physical-grasp --inject-drop-once
+
+The optional fault injector opens the jaws during the first transport.
+It is **only for testing** and never runs without that flag. The recovery
+acceptance test is headless:
+
+    python tests/recovery_smoke.py
+
+This milestone handles one supported, flat-sided soap on a reachable
+countertop. It is not a general grasp planner, does not handle arbitrary
+orientations, and is not proof of safe real-world autonomous recovery.
+
 ## Task outcome verification (physical grasp)
 
 In `--physical-grasp` mode, the robot now tracks real MuJoCo evidence:
@@ -14,9 +46,8 @@ during transport, and end inside the tray. The status panel shows **Prise
 confirmée**, **Résultat** and a reason when the operation fails.
 
 When pickup is lost, motion stops and the jaws open instead of continuing a
-fake successful pick-and-place. This currently **detects and stops** failures:
-automatic recovery/regrasp from a fallen soap is a separate next milestone.
-You can still use **Run / Restart** to reset and try again.
+fake successful pick-and-place. The recovery controller makes one additional
+attempt only if the soap settles in the supported reachable region.
 
 The supervisor reads MuJoCo internal contact and object position data as a
 simulation oracle, *not* a learned vision detector. Real-world confirmation
@@ -154,6 +185,8 @@ The smoke test runs one scripted motion cycle and checks the resulting soap posi
 - models/bathroom_physical.xml: actuated two-jaw contact scene
 - physical_grasp.py: physically driven grip and contact acceptance test
 - grasp_supervisor.py: failure detection and verified physical outcome
+- recovery.py: two-attempt non-resetting recovery and replan logic
+- tests/recovery_smoke.py: inject one drop and verify second pickup
 - static/index.html: self-contained command page
 - tests/test_motion.py: unit tests for the script
 
