@@ -54,9 +54,12 @@ jobs:
       - name: Force a soap drop and verify non-resetting automatic regrasp
         run: python tests/recovery_smoke.py
 
-      - name: Verify angled RGB camera regrasp after injected drop (macOS)
-        if: runner.os == 'macOS'
-        run: mjpython tests/visual_recovery_smoke.py
+      - name: Verify angled RGB camera regrasp with headless EGL (Ubuntu)
+        if: runner.os == 'Linux'
+        env:
+          MUJOCO_GL: egl
+          PYOPENGL_PLATFORM: egl
+        run: python tests/visual_recovery_smoke.py
 
       - name: Boot headless WebViewer and exercise HTTP controls
         run: python tests/viewer_smoke.py
