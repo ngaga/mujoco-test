@@ -31,6 +31,14 @@ def _point(values):
     return [round(float(x), 6) for x in values]
 
 
+def _unit_3d(diff):
+    p = np.asarray(diff, dtype=float)
+    norm = np.linalg.norm(p)
+    if norm < 1e-6:
+        raise RuntimeError("Finger axis is degenerate")
+    return p / norm
+
+
 def _unit_xy(diff):
     p = np.asarray(diff, dtype=float).copy()
     p[2] = 0.0
@@ -58,7 +66,7 @@ def inspect_alignment(model, data):
     tangent = np.array([-closing[1], closing[0], 0.0])
     tip = positions["fixed"][0]
     base = positions["fixed"][-1]
-    forward = _unit_xy(tip - base)
+    forward = _unit_3d(tip - base)
     object_geom = model.geom("block_geom").id
     center = data.geom_xpos[object_geom].copy()
     axes = data.geom_xmat[object_geom].reshape(3, 3).copy()
@@ -302,7 +310,7 @@ def report_markdown(report):
         "is not by itself proof of physical collision.",
         "- Far-face clearance >0: moving pad centroid is beyond the far object face.",
         "- Lateral sign = 90-degree CCW rotation of horizontal closing axis.",
-        "- Forward sign = fixed finger pad #4 (base) toward pad #1 (tip).",
+        "- Forward sign = 3D fixed finger pad #4 (base) toward pad #1 (tip); not a global XY direction.",
         "- Each contact event contains exact colliding geom, normal force, world point, "
         "object tilt and gripper coordinates at the **2ms** physics step.",
         "",
