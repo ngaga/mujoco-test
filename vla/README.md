@@ -1,3 +1,80 @@
+## Controlled geometry follow-up: yellow 24mm cube
+
+The `vla/eval_yellow_cube.py` benchmark uses an object with **exactly the
+same 24 × 24 × 24 mm box geometry, 20 g mass, friction, solver settings,
+initial spawn distribution and orientation rule** as the original red cube.
+The MuJoCo physics and SO-101 motor commands remain unchanged; only the
+material changes to yellow and the pretrained VLA's prompt becomes
+`Pick up the yellow soap and place it in the blue tray.`.
+
+This is deliberately a **cube**, not a realistically proportioned soap bar.
+It tests whether the performance drop seen with the 36 × 24 × 16 mm yellow
+rectangle persists when the original geometry is restored. Changing color
+and the language prompt together still prevents claiming a color-only effect.
+
+From the repo root in `.venv-vla`:
+
+```bash
+mjpython vla/eval_yellow_cube.py --check-env
+mjpython vla/eval_yellow_cube.py --episodes 20 --seed 123 --device mps
+open vla_runs/yellow_cube_gifs/
+```
+
+Reports are `vla_runs/yellow_cube_report.md` and
+`vla_runs/yellow_cube_evaluation.json`; actual two-camera MuJoCo GIFs of
+the first success and failure are in `vla_runs/yellow_cube_gifs/`.
+The `SO-101 yellow cube VLA transfer evaluation` GitHub workflow runs
+20 independent pretrained model rollouts on Ubuntu CPU and uploads the
+same report and authentic GIF recordings. This does **not** train or
+fine-tune the model, and does not modify the original red-cube script.
+
+Next: if geometry restoration improves success, instrument first contact
+between the fingers and the box (gripper/object offset, contact IDs and
+relative orientation) and test the rectangular soap with a local pose
+correction. To isolate appearance from language, perform independent
+red/yellow visual and red-block/yellow-soap instruction ablations.
+
+---
+
+## Zero-shot yellow rectangular mini-soap (EarlyBots experiment)
+
+The source-of-truth runner is `vla/eval_soap.py`. This is a real MuJoCo
+physics experiment driven by the pretrained SO-101 SmolVLA (no training,
+no scripted teleoperation and no object pose in its policy input).
+
+The original 24x24x24 mm red cube is replaced in a freshly compiled version
+of the pinned sim2cell MJCF by a **36x24x16 mm, 20 g yellow rectangular mini-soap**.
+The original finger friction and blue tray stay the same; front/wrist 224x224
+RGB cameras, arm joints and action normalization remain unchanged. The new
+language instruction is "Pick up the yellow soap and place it in the blue tray."
+This is a mini-soap chosen to fit the SO-101 gripper, **not** a full-size
+hotel bar. The original red-cube demonstration is unchanged.
+
+Run from the repository root in the existing isolated `.venv-vla`:
+
+```bash
+source .venv-vla/bin/activate
+mjpython vla/eval_soap.py --check-env
+mjpython vla/eval_soap.py --episodes 20 --seed 123 --device mps
+open vla_runs/soap_gifs/
+```
+
+Outputs: `vla_runs/soap_zero_shot.json` (every trial with final position),
+`vla_runs/soap_report.md` (numeric summary), and several
+`vla_runs/soap_gifs/episode_NN_success|failure.gif` recordings of
+**both real MuJoCo cameras**. The first episode, first successful and first
+failed episode are saved when available. Change to `--device cpu` if MPS
+cannot execute a particular operator.
+
+The dedicated `SO-101 yellow soap zero-shot VLA evaluation` GitHub Actions
+workflow runs 20 CPU rollouts with the pinned pretrained checkpoint and uploads
+the report and genuine RGB GIFs. We do not declare success until a real
+rollout shows the soap physically deposited inside the tray and the arm retreats.
+Even a positive result only establishes transfer to this small modified
+SO-101 scene, not our floating-palm EarlyBots soap workstation.
+
+---
+
 For the independent EarlyBots result, see [RESULTS.md](RESULTS.md):
 **15/20 physical pick-place successes** on Ubuntu CPU using the pretrained
 model, versus the author's reported 18/20. All raw episode outcomes are
