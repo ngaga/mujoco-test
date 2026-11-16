@@ -33,7 +33,7 @@ DEFAULT_MARKDOWN = Path("vla_runs/soap_report.md")
 DEFAULT_GIFS = Path("vla_runs/soap_gifs")
 
 
-def make_soap_xml(source_xml: str) -> str:
+def make_soap_xml(source_xml: str, object_size=SOAP_SIZE) -> str:
     """Change only the object shape/color in the pinned upstream cell."""
     root = ET.fromstring(source_xml)
     geom = root.find(".//body[@name='block']/geom[@name='block_geom']")
@@ -42,7 +42,7 @@ def make_soap_xml(source_xml: str) -> str:
         raise ValueError("Pinned sim2cell pickplace.xml no longer matches its block contract")
     if geom.get("type") != "box":
         raise ValueError("Expected a physical MuJoCo box geom, not a visual-only replacement")
-    geom.set("size", " ".join(f"{x:.6f}" for x in SOAP_HALF))
+    geom.set("size", " ".join(f"{x/2:.6f}" for x in object_size))
     geom.set("mass", str(SOAP_MASS))
     material.set("rgba", SOAP_RGBA)
     # Keep the authored original friction, solver settings, articulated arm,
@@ -50,7 +50,7 @@ def make_soap_xml(source_xml: str) -> str:
     return ET.tostring(root, encoding="unicode")
 
 
-def open_soap_environment(seed: int):
+def open_soap_environment(seed: int, object_size=SOAP_SIZE):
     """Compile physically different MJCF beside its includes/meshes, then clean up.
 
     Temporary XML lives next to the upstream scene so its relative <include>
@@ -60,7 +60,7 @@ def open_soap_environment(seed: int):
     from sim2cell.env import PickPlaceEnv, SCENE_XML
 
     scene_path = Path(SCENE_XML)
-    xml = make_soap_xml(scene_path.read_text())
+    xml = make_soap_xml(scene_path.read_text(), object_size=object_size)
     temp_path = None
     try:
         with tempfile.NamedTemporaryFile(mode="w", suffix=".xml", prefix=".earlybots_soap_",
@@ -92,7 +92,7 @@ def open_soap_environment(seed: int):
             # Upstream reset uses its fixed BLOCK_HALF=0.012 as z. The new
             # soap half-height is 0.008: correct it BEFORE policy observation.
             super().reset(block_pos=block_pos)
-            self.data.qpos[self._block_qadr + 2] = SOAP_HALF[2]
+            self.data.qpos[self._block_qadr + 2] = object_size[2] / 2
             mujoco.mj_forward(self.model, self.data)
             return self.get_obs()
 
