@@ -1,3 +1,55 @@
+## TCP calibration and gripper-frame bias ablation (experimental)
+
+When the fixed SO-101 jaw strikes the cube but the moving jaw can sometimes
+pull it back, we should test the **gripper's own coordinates**, not assume a
+global X or Y correction. Use `vla/eval_tcp_bias.py` to compare the pretrained
+policy's *original commands* to small **±5 mm shifts along the horizontal
+fixed-to-moving-jaw direction**.
+
+The tool reports the declared `tcp` site and fixed-jaw pad centroid in the
+rigid `Fixed_Jaw` body frame (also the moving-jaw and midpoint offsets,
+which **depend on jaw opening**). For each VLA motor target it performs
+damped Jacobian IK of the **four fixed pad geometries** using the five
+arm joints. The sixth jaw command is never modified; the geometric
+shift is capped at 12 mm and joint changes at 0.12 radians per command.
+
+This is a **robot-geometry-only, post-VLA bias**, **not a camera
+calibration**. It does not look at the true object position, and does not
+retrain or modify SmolVLA. It affects the entire episode, including tray
+placement, so improved pickup need not imply improved end-to-end delivery.
+
+On your Mac, after pulling `main` and activating `.venv-vla`:
+
+```bash
+mjpython vla/eval_tcp_bias.py --object cube --check-env
+mjpython vla/eval_tcp_bias.py --object cube --episodes 5 --seed 123 --device mps
+open vla_runs/tcp_bias_ablation/
+```
+
+For the rectangular soap:
+
+```bash
+mjpython vla/eval_tcp_bias.py --object rectangle --episodes 5 --seed 123 --device mps \
+  --output-dir vla_runs/tcp_bias_rectangle
+```
+
+Each test executes three independently seeded, paired configurations:
+`0`, `-5`, `+5` millimetres. Each variant receives the same object
+initialization sequence and matching PyTorch per-episode seed. The
+`0` condition is the identical original VLA joint target, with no bias.
+`report.md`, `evaluation.json` and the GIFs for episodes 1-3 of every
+configuration show the real MuJoCo physics and actual front/wrist cameras,
+with measured first-contact offsets overlaid.
+
+An Ubuntu CPU GitHub Actions workflow runs the cube (5 spawns per bias)
+and rectangular soap (3 spawns per bias), and uploads all measured outputs.
+The choice of ±5 mm is a **predeclared diagnostic sweep** rather than
+a tuned setting. Do not declare a calibration fix from five trials;
+investigate whether fixed-jaw strikes decrease, whether the actual
+Jacobian shift matches the request, and whether tray placement worsens.
+
+---
+
 ## Diagnose apparent lateral/gripper calibration errors (passive)
 
 If the SO-101 fixed jaw hits the cube while the moving jaw sweeps it into
