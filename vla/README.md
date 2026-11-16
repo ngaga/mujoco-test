@@ -1,3 +1,47 @@
+## Diagnose apparent lateral/gripper calibration errors (passive)
+
+If the SO-101 fixed jaw hits the cube while the moving jaw sweeps it into
+the gripper, run **passive 2ms physical contact instrumentation**:
+
+```bash
+git switch main && git pull --ff-only
+source .venv-vla/bin/activate
+mjpython vla/diagnose_contacts.py --object cube --episodes 5 --seed 123 --device mps
+open vla_runs/contact_diagnostics/cube/
+mjpython vla/diagnose_contacts.py --object rectangle --episodes 3 --seed 123 --device mps
+```
+
+Use `--check-env --object cube` to inspect the initial geometry without
+loading model weights. The PR GitHub Actions runner also runs both experiments
+on Ubuntu CPU and uploads actual **annotated front/wrist GIFs**, a Markdown
+summary and machine-readable `contacts.json` with:
+
+- **Exact first impact:** fixed pad / moving pad / other arm mesh, named MuJoCo
+  geom, world contact point, force and penetration.
+- **Physical contact detection at 2ms:** each new robot-object geom pair is
+  recorded; tray/table contacts are excluded. No postprocessed GIF heuristic.
+- **World XYZ:** object, fixed and moving finger centroids and finger tips.
+- **Jaw-defined coordinates:** closing direction points from fixed fingers
+  to moving fingers. Signed lateral is perpendicular to that axis in world
+  XY. Fixed near-face and moving far-face clearances are signed distances
+  from the projected box faces; negative values suggest *planar overlap*
+  but do not by themselves prove a collision in 3D.
+- **Finger forward direction:** vector from pad #4 (base) to pad #1 (tip),
+  measured in 3D, not assumed to coincide with world X or world Y.
+- **Time-series:** 15Hz VLA joint targets, actual joint states, evolving
+  geometric offsets, object tilt, maximum contact force and all contact onsets.
+
+The physical stepping is the SAME as the pinned `sim2cell` controller:
+the script only inserts read-only observations after each `mj_step`.
+No position offset correction, no fine-tuning, and no privileged object state
+are supplied to SmolVLA. Compare a successful and failed episode at the
+**first robot/object contact**, not at the final position, to separate
+mis-centered approach, finger-pad geometry, jaw closure and camera/image
+calibration hypotheses. This logger alone cannot establish which kind of
+calibration is defective.
+
+---
+
 ## Controlled geometry follow-up: yellow 24mm cube
 
 The `vla/eval_yellow_cube.py` benchmark uses an object with **exactly the
