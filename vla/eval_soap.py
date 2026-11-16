@@ -99,21 +99,22 @@ def open_soap_environment(seed: int, object_size=SOAP_SIZE):
     return SoapEnv()
 
 
-def check_environment(seed=123):
-    env = open_soap_environment(seed)
+def check_environment(seed=123, object_size=SOAP_SIZE):
+    env = open_soap_environment(seed, object_size=object_size)
     try:
         state, images = validate_observation(env.reset())
         import mujoco
         geom = env.model.geom("block_geom")
         assert env.model.nu == 6
-        assert np.allclose(geom.size, SOAP_HALF)
-        assert np.allclose(env.data.qpos[env._block_qadr + 2], SOAP_HALF[2])
+        assert np.allclose(geom.size, np.asarray(object_size) / 2)
+        assert np.allclose(env.data.qpos[env._block_qadr + 2], object_size[2] / 2)
         assert np.allclose(env.model.mat("block_red").rgba[:3],
                            [float(x) for x in SOAP_RGBA.split()[:3]])
         validate_observation(env.step(env.data.ctrl[:6].copy()))
         return {
-            "ok": True, "object": "yellow rectangular mini-soap",
-            "dimensions_m": SOAP_SIZE, "mass_kg": SOAP_MASS,
+            "ok": True, "object": ("yellow cube" if len(set(object_size)) == 1
+                                     else "yellow rectangular mini-soap"),
+            "dimensions_m": object_size, "mass_kg": SOAP_MASS,
             "arm_actuators": int(env.model.nu),
             "joint_shape": list(state.shape),
             "cameras": {name: list(image.shape) for name, image in images.items()},
