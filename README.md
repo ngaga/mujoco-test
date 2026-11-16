@@ -6,6 +6,36 @@ A soap bar starts outside a hotel amenities tray containing a toothbrush and too
 
 **Important:** The default demo remains a scripted trajectory with a kinematic soap attachment. The optional `--physical-grasp` mode uses motorized jaws and real contacts, but **neither mode is autonomous or safety-certified**.
 
+## Independent pretrained SO-101 VLA measurement
+
+We reproduced the author's SO-101 pick/place evaluation with the real
+published SmolVLA checkpoint, no retraining. **EarlyBots measured 15/20
+successes (75%)** on Ubuntu CPU; the original author reports 18/20 (90%).
+All five failed episodes hit the 240-action limit and did not place the
+block. See [the full protocol and results](vla/RESULTS.md) and the raw
+GitHub Actions run #65, not the model card alone.
+
+## Actual SO-101 MuJoCo VLA evaluation (pretrained; no training)
+
+**New experiment:** `vla/run_so101.py` uses the author's *matching*
+SO-ARM100 articulated robot, six genuine motor actuators, two RGB cameras,
+and the published SmolVLA v2 checkpoint. It runs closed-loop predictions
+on the real MuJoCo scene and scores a physically completed cube-in-tray
+task. No motion-script actions and no fine-tuning are used.
+
+- First verify the environment: `mjpython vla/run_so101.py --check-env`
+- Then attempt a true learned pick/place:
+  `mjpython vla/run_so101.py --episodes 1 --device mps`
+- For detailed setup, pinned third-party scene and sample GIF:
+  see `vla/README.md`.
+
+This is the SO-101 reference task with a **red cube and blue tray**, not
+yet EarlyBots' hotel soap. CI tests the scene, image/state/action interfaces, and attempts one
+real pretrained-model rollout on Ubuntu CPU with the ~907MB checkpoint.
+The uploaded JSON contains the observed outcome. This single attempt
+is not evidence of an 18/20 success rate; see the report rather than
+assuming the grasp succeeded.
+
 ## Pretrained VLA: SmolVLA pick-and-place (experimental)
 
 To avoid developing a VLA ourselves, we selected a real pretrained

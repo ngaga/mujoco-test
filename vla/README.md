@@ -1,3 +1,113 @@
+For the independent EarlyBots result, see [RESULTS.md](RESULTS.md):
+**15/20 physical pick-place successes** on Ubuntu CPU using the pretrained
+model, versus the author's reported 18/20. All raw episode outcomes are
+available in GitHub Actions workflow #65.
+
+# Run the actual pretrained SmolVLA in MuJoCo SO-101
+
+**This is the next stage after checkpoint downloading.** It uses the author's
+**actual** SO-ARM100 pick-and-place environment, including a 5-DoF articulated
+arm, sixth jaw actuator, 224×224 front RGB camera and wrist RGB camera.
+SmolVLA reads both cameras, 6 motor joint positions and the English task
+instruction, then sends six motor targets to MuJoCo every 1/15 second.
+
+The purpose is to reproduce **one genuine pretrained VLA-controlled pickup**,
+not merely load the weights. There is **no fine-tuning**. We are intentionally
+using the original red cube/blue tray for this first proof, not yet the
+yellow hotel soap or EarlyBots' floating XYZ palm.
+
+## Reproduce on your Apple Silicon Mac
+
+For a compact installation, run `bash vla/setup_so101.sh` once. This
+bootstraps the pinned environment and LeRobot in `.venv-vla`. Alternatively,
+perform the commands below manually.
+
+From the EarlyBots repository root, set up a **separate** Python 3.12
+environment (do not overwrite your current .venv for the hotel demo):
+
+```bash
+brew install python@3.12
+/opt/homebrew/bin/python3.12 -m venv .venv-vla
+source .venv-vla/bin/activate
+python -m pip install --upgrade pip
+
+# Exact source version of the author's SO-ARM100 MuJoCo workcell and meshes
+python -m pip install "git+https://github.com/ahmedsohail2003/workcell-partA-imitation.git@5822ac1dd508c92183fd8ecc99f91d6ec386549b"
+
+# Same major/minor LeRobot version as the author used to train the checkpoint
+python -m pip install "lerobot[smolvla]==0.6.0"
+```
+
+First check the real robot model and both cameras, **without downloading the
+large model or running an AI policy**:
+
+```bash
+mjpython vla/run_so101.py --check-env
+```
+
+Then execute **one actual pretrained VLA-controlled simulation**:
+
+```bash
+mjpython vla/run_so101.py --episodes 1 --device mps \
+  --gif vla_runs/so101_first_vla.gif
+```
+
+The default model ID is
+[ahmedsohail2003/smolvla-so101-pickplace-v2](https://huggingface.co/ahmedsohail2003/smolvla-so101-pickplace-v2).
+This downloads public pretrained weights once, if not already cached. If
+you downloaded them with fetch_smolvla.py, use:
+
+```bash
+mjpython vla/run_so101.py --repo vla/checkpoints/smolvla-so101-pickplace-v2 \
+  --episodes 1 --device mps --gif vla_runs/so101_first_vla.gif
+```
+
+If the current PyTorch/MPS combination rejects an operation, try
+`--device cpu` (slower). The first command may download ~0.9 GB of
+checkpoint weights plus its dependencies. No GPU training is necessary.
+
+To compare with the author's evaluation (20 distinct spawns, seed 123,
+240 steps at 15Hz, identical instruction, exact SO-101 motor conventions):
+
+```bash
+mjpython vla/run_so101.py --episodes 20 --seed 123 --device mps \
+  --output vla_runs/so101_20episodes.json
+```
+
+The JSON report contains every rollout's actual MuJoCo success/steps,
+initial and final block position and final TCP pose. Success is scored by the
+environment's **real block-in-tray + gripper-retreated** condition, never by
+the model's own text or by pretending its outputs are correct.
+
+## What the tests establish
+
+The EarlyBots PR CI includes a **one-episode real pretrained VLA evaluation**
+on CPU in Ubuntu/Mesa. It downloads the actual checkpoint and uses the
+original SO-101 environment, uploading a JSON artifact with success/failure.
+This is a small integration trial (1 episode), not a statistically reliable
+20-episode benchmark. The CI also verifies:
+- Data contract: the model gets six joint states, two rendered RGB cameras
+  and the exact task instruction, and returns six finite joint targets.
+- A stub-policy closed loop actually sends commands to motor actuators.
+- Ubuntu offscreen MuJoCo: installs the author's pinned complete scene
+  and renders both cameras, checks six articulated actuators, and steps real
+  physics with their control targets.
+
+**An actual SmolVLA pick-place result must come from the GitHub JSON
+artifact or an observed Mac rollout.** The 18/20 rate is the original
+author's result, not an EarlyBots experiment. One episode is an integration
+check, not a measured success rate.
+
+## Next integration milestone
+
+After the matching SO-101 workcell succeeds with the published checkpoint,
+we can replace the cube with a *small, physically graspable* soap bar in
+that same six-joint SO-101 action space, preserving the camera and
+normalization assumptions initially. Our existing EarlyBots robot, which
+uses a floating mocap palm, is NOT yet a compatible inference target.
+
+---
+
 # SmolVLA pretrained Pick & Place experiment
 
 We will **reuse a downloaded pretrained VLA**, not train our own foundation

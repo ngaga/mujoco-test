@@ -18,3 +18,6 @@ imitation_runs/
 # Optional downloaded VLA checkpoints and separate Mac environment
 vla/checkpoints/
 .venv-vla/
+
+# Pretrained SO-101 evaluation reports and GIFs
+vla_runs/
