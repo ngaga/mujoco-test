@@ -1,3 +1,56 @@
+## Held-out rectangle study: full vs approach-only -5mm jaw bias
+
+This is the larger **independent holdout** after the exploratory 3-position
+TCP calibration sweep. We use a new reproducible seed (2027) to create
+**24 distinct, reachable soap XY poses**, matching the pinned reference SO-101
+workcell's radius/angle distribution. All conditions use the same 24 poses
+and per-episode PyTorch RNG seed. No fine-tuning, scripted teacher, or
+object-ground-truth input to the controller.
+
+The pretrained SmolVLA commands real six-joint MuJoCo physics at 15 Hz,
+with passive contact checks at each 2ms integration step. Three predeclared
+conditions are evaluated:
+
+1. `baseline`: exact original VLA joint setpoints (0 mm).
+2. `full`: -5mm along the local fixed-to-moving jaw closing axis
+   **throughout** pick, transport and placement.
+3. `approach`: -5mm during the first approach only. Once the VLA's
+   predicted jaw target has first been open (>=0.85 rad) then starts to
+   close (<=0.60 rad), the bias smoothly fades to zero over 5 policy
+   commands and **never reactivates** in the episode. A fixed 120-step
+   horizon triggers the same fade if no close event appears. This is
+   based only on motor predictions, not contact/oracle/object position.
+
+The ±5mm exploration on seed 123 was a small preliminary study, not
+held-out evidence. This new seed is used **once to evaluate the predeclared
+conditions**, without tuning after looking at these outcomes.
+
+### Reproduce on Apple Silicon Mac
+
+```bash
+git switch main
+git pull --ff-only
+source .venv-vla/bin/activate
+mjpython vla/eval_phase_bias.py --check-env
+mjpython vla/eval_phase_bias.py --episodes 24 --seed 2027 --device mps
+open vla_runs/heldout_phase_bias/
+```
+
+For a quick smoke test, change `--episodes 24` to `--episodes 2`.
+Use `--device cpu` only if Apple MPS errors. The full GitHub Actions
+Ubuntu benchmark runs all 72 real model-driven episodes (24 per policy),
+then uploads `report.md`, `evaluation.json` and representative authentic
+front/wrist GIFs.
+
+The report separates **physically completed placement** from **object
+lift >= 5cm**, first fixed/moving/non-pad robot impact, and matched
+per-episode gains/losses. It records actual Jacobian displacement,
+predicted jaw setpoints and the exact phase-gate transition. Three
+conditions are better than a single raw number, but 24 episodes cannot
+prove hardware robustness or camera miscalibration.
+
+---
+
 ## TCP calibration and gripper-frame bias ablation (experimental)
 
 When the fixed SO-101 jaw strikes the cube but the moving jaw can sometimes

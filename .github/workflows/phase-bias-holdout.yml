@@ -1,0 +1,70 @@
+name: Held-out SO-101 phase-gated soap bias benchmark
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'vla/approach_gate.py'
+      - 'vla/eval_phase_bias.py'
+      - 'tests/test_phase_bias_holdout.py'
+      - '.github/workflows/phase-bias-holdout.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  paired-soap-benchmark:
+    name: 24 new XY spawns x 3 pretrained VLA controls, true MuJoCo physics
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install MuJoCo, pinned articulated SO-101 cell and Mesa
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libosmesa6 libosmesa6-dev libgl1-mesa-dri
+          python -m pip install -r requirements.txt
+          python -m pip install 'git+https://github.com/ahmedsohail2003/workcell-partA-imitation.git@5822ac1dd508c92183fd8ecc99f91d6ec386549b'
+
+      - name: Verify deterministic heldout positions and jaw-only phase gate
+        run: |
+          python -m compileall -q vla/approach_gate.py vla/eval_phase_bias.py tests/test_phase_bias_holdout.py
+          python -m unittest discover -s tests -p 'test_phase_bias_holdout.py' -v
+
+      - name: Compile actual soap scene and verify signed correction
+        env:
+          MUJOCO_GL: osmesa
+          PYOPENGL_PLATFORM: osmesa
+        run: python vla/eval_phase_bias.py --check-env --seed 2027
+
+      - name: Install actual pretrained SmolVLA CPU inference
+        run: |
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu \
+            'torch==2.8.0' 'torchvision==0.23.0'
+          python -m pip install 'lerobot[smolvla]==0.6.0'
+
+      - name: Execute 24 new paired soap poses, baseline/full/approach-only correction
+        timeout-minutes: 43
+        env:
+          MUJOCO_GL: osmesa
+          PYOPENGL_PLATFORM: osmesa
+        run: |
+          python vla/eval_phase_bias.py --episodes 24 --seed 2027 \
+            --max-steps 240 --device cpu \
+            --output-dir vla_runs/heldout_phase_bias
+          cat vla_runs/heldout_phase_bias/report.md
+
+      - name: Publish measured outcomes, first contacts and genuine camera GIFs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: heldout-24-soap-poses-full-vs-approach-only-bias
+          path: vla_runs/heldout_phase_bias/
+          if-no-files-found: warn
