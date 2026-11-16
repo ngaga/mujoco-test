@@ -1,0 +1,68 @@
+name: SO-101 yellow soap zero-shot VLA evaluation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'vla/eval_soap.py'
+      - 'tests/test_soap_zero_shot.py'
+      - '.github/workflows/soap-zero-shot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  soap-zero-shot:
+    name: Real SmolVLA physical soap transfer (20 episodes)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install MuJoCo, SO-101 reference workcell and software renderer
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libosmesa6 libosmesa6-dev libgl1-mesa-dri
+          python -m pip install -r requirements.txt
+          python -m pip install 'git+https://github.com/ahmedsohail2003/workcell-partA-imitation.git@5822ac1dd508c92183fd8ecc99f91d6ec386549b'
+
+      - name: Unit tests for zero-shot soap model and VLA data contract
+        run: python -m unittest discover -s tests -p 'test_soap_zero_shot.py' -v
+
+      - name: Install real pretrained SmolVLA inference dependencies (CPU)
+        run: |
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu \
+            'torch==2.8.0' 'torchvision==0.23.0'
+          python -m pip install 'lerobot[smolvla]==0.6.0'
+
+      - name: Compile and render physical yellow rectangular mini-soap
+        env:
+          MUJOCO_GL: osmesa
+          PYOPENGL_PLATFORM: osmesa
+        run: python vla/eval_soap.py --check-env
+
+      - name: Evaluate 20 real zero-shot joint-control rollouts and record GIFs
+        timeout-minutes: 30
+        env:
+          MUJOCO_GL: osmesa
+          PYOPENGL_PLATFORM: osmesa
+        run: |
+          python vla/eval_soap.py --episodes 20 --seed 123 --device cpu \
+            --output vla_runs/soap_zero_shot.json \
+            --markdown vla_runs/soap_report.md \
+            --gif-dir vla_runs/soap_gifs
+          cat vla_runs/soap_report.md
+
+      - name: Upload genuine soap evaluation, report and actual camera GIFs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yellow-rectangular-soap-zero-shot-gifs-and-report
+          path: vla_runs/
+          if-no-files-found: warn
