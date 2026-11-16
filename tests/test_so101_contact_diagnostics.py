@@ -66,8 +66,8 @@ class GraspDiagnosticTests(unittest.TestCase):
         g = m["gripper_frame_mm"]
         self.assertAlmostEqual(g["fixed_pad_to_object_near_face_clearance"], 18)
         self.assertAlmostEqual(g["moving_pad_beyond_far_face_clearance"], 18)
-        self.assertAlmostEqual(g["object_from_fixed_perpendicular"], 5)
-        self.assertAlmostEqual(g["object_ahead_of_fixed_tip"], -10)
+        self.assertAlmostEqual(g["object_from_fixed_perpendicular"], -5)
+        self.assertAlmostEqual(g["object_ahead_of_fixed_tip"], -20)
         self.assertEqual(m["object_tilt_deg"], 0)
 
     def test_lateral_sign_follows_gripper_not_world_x_y(self):
@@ -81,8 +81,8 @@ class GraspDiagnosticTests(unittest.TestCase):
         m = diagnostics.inspect_alignment(model, data)
         g = m["gripper_frame_mm"]
         self.assertAlmostEqual(g["fixed_pad_to_object_near_face_clearance"], 18)
-        self.assertAlmostEqual(g["object_from_fixed_perpendicular"], 5)
-        self.assertAlmostEqual(g["object_ahead_of_fixed_tip"], -10)
+        self.assertAlmostEqual(g["object_from_fixed_perpendicular"], -5)
+        self.assertAlmostEqual(g["object_ahead_of_fixed_tip"], -20)
 
     def test_no_contact_is_not_reported_as_alignment_failure(self):
         m = FakeModel()
