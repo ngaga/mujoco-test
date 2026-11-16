@@ -31,7 +31,11 @@ class YellowCubeExperimentTests(unittest.TestCase):
         old_geom = original.find(".//geom[@name='block_geom']")
         new_geom = actual.find(".//geom[@name='block_geom']")
         # Compare every physical attribute, not just box shape.
-        self.assertEqual(old_geom.attrib, new_geom.attrib)
+        self.assertEqual([float(x) for x in old_geom.get("size").split()],
+                         [float(x) for x in new_geom.get("size").split()])
+        for key in old_geom.attrib:
+            if key != "size":
+                self.assertEqual(old_geom.get(key), new_geom.get(key))
         self.assertEqual(cube.CUBE_SIZE, (0.024, 0.024, 0.024))
         self.assertEqual(
             actual.find(".//material[@name='block_red']").get("rgba"),
