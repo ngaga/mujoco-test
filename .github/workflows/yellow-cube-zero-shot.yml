@@ -1,0 +1,68 @@
+name: SO-101 yellow cube VLA transfer evaluation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'vla/eval_soap.py'
+      - 'vla/eval_yellow_cube.py'
+      - 'tests/test_yellow_cube_zero_shot.py'
+      - '.github/workflows/yellow-cube-zero-shot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  yellow-cube-zero-shot:
+    name: Real SmolVLA yellow 24mm cube (20 episodes)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install MuJoCo, pinned SO-101 and OSMesa
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libosmesa6 libosmesa6-dev libgl1-mesa-dri
+          python -m pip install -r requirements.txt
+          python -m pip install 'git+https://github.com/ahmedsohail2003/workcell-partA-imitation.git@5822ac1dd508c92183fd8ecc99f91d6ec386549b'
+
+      - name: Test exact cube mass/shape/friction equivalence and report
+        run: |
+          python -m unittest discover -s tests -p 'test_yellow_cube_zero_shot.py' -v
+          python -m unittest discover -s tests -p 'test_soap_zero_shot.py' -v
+
+      - name: Install pretrained SmolVLA CPU inference dependencies
+        run: |
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu \
+            'torch==2.8.0' 'torchvision==0.23.0'
+          python -m pip install 'lerobot[smolvla]==0.6.0'
+
+      - name: Compile and render identical geometry yellow cube
+        env:
+          MUJOCO_GL: osmesa
+          PYOPENGL_PLATFORM: osmesa
+        run: python vla/eval_yellow_cube.py --check-env
+
+      - name: Run 20 zero-shot yellow cube episodes and capture two-camera GIFs
+        timeout-minutes: 30
+        env:
+          MUJOCO_GL: osmesa
+          PYOPENGL_PLATFORM: osmesa
+        run: |
+          python vla/eval_yellow_cube.py --episodes 20 --seed 123 --device cpu
+          cat vla_runs/yellow_cube_report.md
+
+      - name: Upload actual yellow cube report, outcomes and GIFs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yellow-cube-zero-shot-20episodes-report-gifs
+          path: vla_runs/
+          if-no-files-found: warn
