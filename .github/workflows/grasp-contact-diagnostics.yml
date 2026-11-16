@@ -1,0 +1,78 @@
+name: SO-101 grasp contact diagnostics
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'vla/diagnose_contacts.py'
+      - 'tests/test_so101_contact_diagnostics.py'
+      - '.github/workflows/grasp-contact-diagnostics.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contact-diagnostics:
+    name: Passive 2ms finger contact diagnostics and annotated GIFs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install pinned robot, MuJoCo and offscreen Mesa
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libosmesa6 libosmesa6-dev libgl1-mesa-dri
+          python -m pip install -r requirements.txt
+          python -m pip install 'git+https://github.com/ahmedsohail2003/workcell-partA-imitation.git@5822ac1dd508c92183fd8ecc99f91d6ec386549b'
+
+      - name: Check offline signed geometry and contact reports
+        run: |
+          python -m compileall -q vla/diagnose_contacts.py tests/test_so101_contact_diagnostics.py
+          python -m unittest discover -s tests -p 'test_so101_contact_diagnostics.py' -v
+
+      - name: Verify actual fixed/moving finger pad world frame in MuJoCo
+        env:
+          MUJOCO_GL: osmesa
+          PYOPENGL_PLATFORM: osmesa
+        run: |
+          python vla/diagnose_contacts.py --object cube --check-env
+          python vla/diagnose_contacts.py --object rectangle --check-env
+
+      - name: Install actual pretrained SmolVLA CPU inference
+        run: |
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu \
+            'torch==2.8.0' 'torchvision==0.23.0'
+          python -m pip install 'lerobot[smolvla]==0.6.0'
+
+      - name: Diagnose yellow cube first contact across five trials
+        env:
+          MUJOCO_GL: osmesa
+          PYOPENGL_PLATFORM: osmesa
+        timeout-minutes: 14
+        run: |
+          python vla/diagnose_contacts.py --object cube --seed 123 --episodes 5 --device cpu
+          cat vla_runs/contact_diagnostics/cube/report.md
+
+      - name: Diagnose rectangular yellow soap first contact across three trials
+        env:
+          MUJOCO_GL: osmesa
+          PYOPENGL_PLATFORM: osmesa
+        timeout-minutes: 14
+        run: |
+          python vla/diagnose_contacts.py --object rectangle --seed 123 --episodes 3 --device cpu
+          cat vla_runs/contact_diagnostics/rectangle/report.md
+
+      - name: Upload raw 2ms events, 15Hz traces, report and authentic annotated GIFs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: so101-grasp-contact-calibration-diagnostics
+          path: vla_runs/contact_diagnostics/
+          if-no-files-found: warn
