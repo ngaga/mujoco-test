@@ -90,9 +90,9 @@ recovery behavior being tested does not imply successful placement.
 The mobile physical gripper has a modest tune:
 - Pad and finger-stop tangential friction **5.0 → 6.0** (MuJoCo dimensionless coefficients).
 - Jaw actuator force limits **±15 → ±18 N**.
-- Symmetric nominal closing command **0.051 → 0.046 m** per jaw, widening the nominal free gap from 32 mm to 42 mm for the 48 mm cube.
+- Keep the original symmetric closing command **0.051 m** per jaw, corresponding to a 32 mm nominal free gap for the 48 mm cube. A first trial at 0.046 m dropped the cube earlier, so the width adjustment is not retained.
 
-This adjusts a **position target**, not a closed-loop grip-force controller.
+The jaw motor setting is still a **position target**, not a closed-loop grip-force controller.
 Actual contact forces, cube compression and eventual delivery are not guaranteed
 by these parameters alone. The existing recovery sequence and 7D expert/VLA
 interface are unchanged. CI records end-to-end physical delivery separately
