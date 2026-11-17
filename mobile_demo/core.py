@@ -18,10 +18,10 @@ JOINTS = ("base_x", "base_y", "base_yaw", "reach", "lift", "left_jaw", "right_ja
 CAMERAS = ("front", "wrist")
 ACTION_DIM = len(JOINTS)
 CUBE_COUNT = 5
-# Softer nominal pinch: symmetric slide 46 mm vs 51 mm previously.
-# With pads centered at +/-75 mm and pad half-width 8 mm, the nominal
-# free inner gap becomes 42 mm instead of 32 mm for a 48 mm-wide cube.
-GRIP_CLOSE = 0.046
+# Keep original closing target: widening the jaws to 46 mm (command)
+# caused an earlier drop in the first measured simulation.
+# Test friction and motor force separately from closure geometry.
+GRIP_CLOSE = 0.051
 BIN_CENTER = np.array([0.95, 0.90], dtype=np.float64)
 # Positions as (x,y,yaw,reach,lift,left-jaw,right-jaw), in SI units.
 HOME = np.array([-1.21, -0.86, 0, 0.28, -0.18, 0, 0], dtype=np.float64)
