@@ -34,6 +34,46 @@ class MobileDemoTests(unittest.TestCase):
         self.env.step(HOME, frames=10)
         self.assertFalse(self.env.in_bin(0))
 
+    def test_drop_recovery_without_reset(self):
+        teacher = Expert(max_retries=2, phase="transport", entered=-1.)
+        teacher.attempts_per_cube[0] = 1
+        original_xyz = self.env.cube_position(0).copy()
+        action = teacher.action(self.env)
+        self.assertEqual(teacher.phase, "recover")
+        self.assertEqual(teacher.retries, 1)
+        self.assertEqual(teacher.attempts_per_cube[0], 1)
+        self.assertIsNone(teacher.failure)
+        self.assertEqual(action[5], 0.)
+        self.assertEqual(teacher.retry_events[0]["reason"], "dropped during transport")
+        np.testing.assert_allclose(self.env.cube_position(0), original_xyz)
+
+    def test_reacquire_current_cube_position_after_drop(self):
+        import mujoco
+        teacher = Expert(max_retries=3, phase="navigate", entered=-1.)
+        adr = int(self.env.model.jnt_qposadr[self.env.model.joint("cube_0").id])
+        # Only the TEST scenario moves the cube to simulate its new drop pose.
+        self.env.data.qpos[adr:adr + 2] = [-0.35, -0.40]
+        mujoco.mj_forward(self.env.model, self.env.data)
+        action = teacher.action(self.env)
+        np.testing.assert_allclose(action[:2], [-0.63, -0.40], atol=0.002)
+
+    def test_retries_exhausted_skip_to_next_cube(self):
+        env = MobileEnv(cubes=2)
+        teacher = Expert(max_retries=1, phase="transport", entered=-1.)
+        teacher.attempts_per_cube[0] = 2
+        teacher.action(env)
+        self.assertEqual(teacher.skipped_cubes, [0])
+        self.assertEqual(teacher.cube, 1)
+        self.assertEqual(teacher.phase, "recover")
+        self.assertIsNone(teacher.failure)
+
+    def test_last_cube_exhaustion_terminal(self):
+        teacher = Expert(max_retries=1, phase="transport", entered=-1.)
+        teacher.attempts_per_cube[0] = 2
+        teacher.action(self.env)
+        self.assertIsNotNone(teacher.failure)
+        self.assertEqual(teacher.skipped_cubes, [0])
+
     def test_expert_labels_are_not_vla(self):
         teacher = Expert()
         self.assertEqual(teacher.phase, "navigate")
