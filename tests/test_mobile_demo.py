@@ -32,8 +32,8 @@ class MobileDemoTests(unittest.TestCase):
             actuator = model.actuator(name)
             self.assertAlmostEqual(float(actuator.forcerange[1]), 18.0, places=6)
             self.assertAlmostEqual(float(actuator.forcerange[0]), -18.0, places=6)
-        teacher = Expert(phase="transport", entered=-1.0)
-        # A genuine physics-side hold command should use the new, softer closure.
+        teacher = Expert(phase="close", entered=-1.0)
+        # The close phase must command the updated jaw position symmetrically.
         self.env.data.qpos[self.env.qpos_addr[4]] = -0.18
         action = teacher.action(self.env)
         np.testing.assert_allclose(action[5:], [GRIP_CLOSE, GRIP_CLOSE])
