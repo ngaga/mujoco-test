@@ -148,9 +148,12 @@ def execute(args):
                     break
             if viewer and args.hold_viewer and not args.smoke_test:
                 print("Final scene remains visible. Ctrl+C to quit.", flush=True)
-                while viewer.is_running():
-                    viewer.sync(env.model, env.data)
-                    time.sleep(0.05)
+                try:
+                    while viewer.is_running():
+                        viewer.sync(env.model, env.data)
+                        time.sleep(0.05)
+                except KeyboardInterrupt:
+                    print("Closing viewer; saving final report.", flush=True)
     finally:
         if gif_renderer is not None:
             gif_renderer.close()
