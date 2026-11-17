@@ -46,13 +46,13 @@
           <geom name="vertical_carriage" type="capsule" fromto="0 0 0.035 0 0 0.18" size="0.018" mass="0.24" rgba="0.55 0.69 0.74 1" contype="0" conaffinity="0"/>
           <geom name="jaw_housing" type="box" pos="0 0 0.038" size="0.036 0.031 0.020" mass="0.08" rgba="0.16 0.23 0.28 1" contype="0" conaffinity="0"/>
           <camera name="wrist" pos="0.075 0 0.065" xyaxes="0 1 0 -0.7071 0 -0.7071" fovy="80"/>
-          <body name="finger_left" pos="0 -0.075 0">
+          <body name="finger_left" pos="0 -0.075 -0.040">
             <joint name="left_jaw" type="slide" axis="0 1 0" range="0 0.055" limited="true" damping="2"/>
-            <geom name="left_pad" type="box" size="0.024 0.008 0.021" mass="0.025" friction="5.0 0.01 0.002" rgba="0.08 0.75 0.80 1"/>
+            <geom name="left_pad" type="box" size="0.024 0.008 0.028" mass="0.025" friction="5.0 0.01 0.002" rgba="0.08 0.75 0.80 1"/>
           </body>
-          <body name="finger_right" pos="0 0.075 0">
+          <body name="finger_right" pos="0 0.075 -0.040">
             <joint name="right_jaw" type="slide" axis="0 -1 0" range="0 0.055" limited="true" damping="2"/>
-            <geom name="right_pad" type="box" size="0.024 0.008 0.021" mass="0.025" friction="5.0 0.01 0.002" rgba="0.08 0.75 0.80 1"/>
+            <geom name="right_pad" type="box" size="0.024 0.008 0.028" mass="0.025" friction="5.0 0.01 0.002" rgba="0.08 0.75 0.80 1"/>
           </body>
         </body>
       </body>

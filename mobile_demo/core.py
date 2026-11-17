@@ -150,16 +150,16 @@ class Expert:
             if np.linalg.norm(current[:2] - target[:2]) < 0.022 and elapsed > 0.35:
                 self.advance("lower", t)
         elif self.phase == "lower":
-            target[4] = -0.465
+            target[4] = -0.430
             if abs(current[4] - target[4]) < 0.012 and elapsed > 0.5:
                 self.advance("close", t)
         elif self.phase == "close":
-            target[4] = -0.465
-            target[5:] = 0.053
+            target[4] = -0.430
+            target[5:] = 0.051
             if elapsed > 0.80:
                 self.advance("lift", t)
         elif self.phase == "lift":
-            target[5:] = 0.053
+            target[5:] = 0.051
             if abs(current[4] - (-0.18)) < 0.02 and elapsed > 0.70:
                 if env.cube_position(self.cube)[2] < 0.10:
                     self.failure = f"cube {self.cube}: gripper did not lift object"
@@ -169,13 +169,13 @@ class Expert:
         elif self.phase == "transport":
             if cube[2] < 0.10 and elapsed > 0.4:
                 self.failure = f"cube {self.cube}: dropped during transport"
-            target[5:] = 0.053
+            target[5:] = 0.051
             if np.linalg.norm(current[:2] - target[:2]) < 0.025 and elapsed > 0.35:
                 self.advance("approach_bin", t)
         elif self.phase == "approach_bin":
             if cube[2] < 0.10 and elapsed > 0.4:
                 self.failure = f"cube {self.cube}: dropped during bin approach"
-            target[5:] = 0.053
+            target[5:] = 0.051
             if np.linalg.norm(current[:2] - target[:2]) < 0.025 and elapsed > 0.35:
                 self.advance("release", t)
         elif self.phase == "release":
