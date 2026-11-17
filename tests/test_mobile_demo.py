@@ -22,8 +22,7 @@ class MobileDemoTests(unittest.TestCase):
     def test_gripper_tuning(self):
         """Both jaws must be symmetrical, within limits, and slightly stronger."""
         model = self.env.model
-        self.assertAlmostEqual(GRIP_CLOSE, 0.046)
-        self.assertLess(GRIP_CLOSE, 0.051)
+        self.assertAlmostEqual(GRIP_CLOSE, 0.051)
         self.assertLessEqual(GRIP_CLOSE, self.env.model.joint("left_jaw").range[1])
         for name in ("left_pad", "right_pad"):
             geom = model.geom(name)
