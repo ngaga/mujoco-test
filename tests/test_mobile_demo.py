@@ -3,7 +3,7 @@ import unittest
 
 import numpy as np
 
-from mobile_demo.core import ACTION_DIM, CAMERAS, Expert, HOME, MobileEnv, TASK, validate_action
+from mobile_demo.core import ACTION_DIM, CAMERAS, Expert, GRIP_CLOSE, HOME, MobileEnv, TASK, validate_action
 
 
 class MobileDemoTests(unittest.TestCase):
@@ -18,6 +18,24 @@ class MobileDemoTests(unittest.TestCase):
         self.assertEqual(self.env.model.nu, ACTION_DIM)
         self.assertEqual(self.env.state().shape, (ACTION_DIM,))
         np.testing.assert_allclose(self.env.state(), HOME, atol=0.0001)
+
+    def test_gripper_tuning(self):
+        """Both jaws must be symmetrical, within limits, and slightly stronger."""
+        model = self.env.model
+        self.assertAlmostEqual(GRIP_CLOSE, 0.051)
+        self.assertLessEqual(GRIP_CLOSE, self.env.model.joint("left_jaw").range[1])
+        for name in ("left_pad", "right_pad"):
+            geom = model.geom(name)
+            self.assertAlmostEqual(float(geom.friction[0]), 6.0, places=6)
+        for name in ("jaw_left", "jaw_right"):
+            actuator = model.actuator(name)
+            self.assertAlmostEqual(float(actuator.forcerange[1]), 18.0, places=6)
+            self.assertAlmostEqual(float(actuator.forcerange[0]), -18.0, places=6)
+        teacher = Expert(phase="close", entered=-1.0)
+        # The close phase must command the updated jaw position symmetrically.
+        self.env.data.qpos[self.env.qpos_addr[4]] = -0.18
+        action = teacher.action(self.env)
+        np.testing.assert_allclose(action[5:], [GRIP_CLOSE, GRIP_CLOSE])
 
     def test_action_contract(self):
         np.testing.assert_allclose(validate_action(HOME), HOME)

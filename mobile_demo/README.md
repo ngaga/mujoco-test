@@ -83,3 +83,17 @@ mjpython -m mobile_demo.run --cubes 1 --inject-drop-once --max-retries 3 \
 Reports now include `retries`, `retry_events`, `attempts_per_cube`,
 `skipped_cubes`, and `failure`. The gripper can still lose the cube:
 recovery behavior being tested does not imply successful placement.
+
+
+## Small grip tuning experiment (2026-11-17)
+
+The mobile physical gripper has a modest tune:
+- Pad and finger-stop tangential friction **5.0 → 6.0** (MuJoCo dimensionless coefficients).
+- Jaw actuator force limits **±15 → ±18 N**.
+- Keep the original symmetric closing command **0.051 m** per jaw, corresponding to a 32 mm nominal free gap for the 48 mm cube. A first trial at 0.046 m dropped the cube earlier, so the width adjustment is not retained.
+
+The jaw motor setting is still a **position target**, not a closed-loop grip-force controller.
+Actual contact forces, cube compression and eventual delivery are not guaranteed
+by these parameters alone. The existing recovery sequence and 7D expert/VLA
+interface are unchanged. CI records end-to-end physical delivery separately
+from syntax and mechanical regression tests.
