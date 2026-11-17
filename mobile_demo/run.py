@@ -68,7 +68,7 @@ def predict_smolvla(components, obs, device):
 
 def execute(args):
     env = MobileEnv(cubes=args.cubes)
-    expert = Expert() if args.policy == "expert" else None
+    expert = Expert(max_retries=args.max_retries) if args.policy == "expert" else None
     components = None
     renderers = None
     frames_for_gif = []
@@ -86,6 +86,8 @@ def execute(args):
     dt = env.model.opt.timestep
     steps_per_policy = round(1. / (15 * dt))
     t_last = time.perf_counter()
+    injected_drop = False
+    open_jaws_until = -1.0
     try:
         if args.viewer:
             from mujoco.studio import launch_web, viewer_protocol
@@ -108,6 +110,15 @@ def execute(args):
                 else:
                     obs = env.observation(renderers)
                     action = predict_smolvla(components, obs, args.device)
+                if args.inject_drop_once and expert is not None:
+                    if (not injected_drop and expert.phase == "transport"
+                            and env.data.time - expert.entered > 0.45):
+                        injected_drop = True
+                        open_jaws_until = float(env.data.time) + 0.9
+                        print("Injected physical gripper opening once", flush=True)
+                    if env.data.time < open_jaws_until:
+                        action = action.copy()
+                        action[5:] = 0.0
                 if args.record and step % 3 == 0:
                     obs = env.observation(renderers)
                     dataset["state"].append(obs["state"])
@@ -127,12 +138,22 @@ def execute(args):
                     pos = env.cube_position(expert.cube if expert else 0)
                     print(f"t={env.data.time:.1f}s cubes={env.placed()}/{env.cubes} "
                           f"phase={expert.phase if expert else 'VLA'} "
+                          f"attempt={expert.attempts_per_cube[expert.cube] if expert else 0} "
+                          f"retries={expert.retries if expert else 0} "
                           f"base={env.state()[:2].round(3).tolist()} "
                           f"cube_xyz={pos.round(3).tolist()}", flush=True)
                 if expert and (expert.done or expert.failure):
                     break
                 if env.placed() == env.cubes and not expert:
                     break
+            if viewer and args.hold_viewer and not args.smoke_test:
+                print("Final scene remains visible. Ctrl+C to quit.", flush=True)
+                try:
+                    while viewer.is_running():
+                        viewer.sync(env.model, env.data)
+                        time.sleep(0.05)
+                except KeyboardInterrupt:
+                    print("Closing viewer; saving final report.", flush=True)
     finally:
         if gif_renderer is not None:
             gif_renderer.close()
@@ -150,7 +171,15 @@ def execute(args):
         "cubes_in_bin": env.placed(),
         "simulation_seconds": float(env.data.time),
         "expert_physical_lifts": expert.lifts if expert else None,
-        "failure": expert.failure if expert else None,
+        "max_retries_per_cube": expert.max_retries if expert else None,
+        "retries": expert.retries if expert else None,
+        "attempts_per_cube": expert.attempts_per_cube[:env.cubes] if expert else None,
+        "retry_events": expert.retry_events if expert else None,
+        "skipped_cubes": expert.skipped_cubes if expert else None,
+        "fault_injected": injected_drop,
+        "failure": (expert.failure or (
+            f"skipped cube(s) {expert.skipped_cubes}" if expert.skipped_cubes else None
+        )) if expert else None,
         "success": env.placed() == args.cubes and (expert is None or expert.done),
         "final_positions": [env.cube_position(i).round(4).tolist() for i in range(args.cubes)],
     }
@@ -175,15 +204,25 @@ def main(argv=None):
     parser.add_argument("--smoke-test", action="store_true")
     parser.add_argument("--cubes", type=int, default=5)
     parser.add_argument("--max-steps", type=int, default=2500)
+    parser.add_argument("--max-retries", type=int, default=5,
+                        help="Additional physical pick attempts per cube (expert only)")
+    parser.add_argument("--inject-drop-once", action="store_true",
+                        help="Test only: physically open gripper once in transport")
     parser.add_argument("--policy", choices=("expert", "smolvla"), default="expert")
     parser.add_argument("--checkpoint", help="Fine-tuned 7D mobile SmolVLA repository or path")
     parser.add_argument("--device", default="cpu", choices=("cpu", "mps", "cuda"))
     parser.add_argument("--viewer", action="store_true", help="MuJoCo Studio WebViewer")
+    parser.add_argument("--no-hold-viewer", action="store_false", dest="hold_viewer",
+                        help="Do not keep the final browser scene open")
     parser.add_argument("--viewer-port", type=int, default=8080)
     parser.add_argument("--gif", type=Path)
     parser.add_argument("--record", type=Path, help="Raw expert demonstrations, not a LeRobot dataset")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args(argv)
+    if args.max_retries < 0 or args.max_steps < 1:
+        parser.error("--max-retries must be >= 0 and --max-steps must be positive")
+    if args.inject_drop_once and args.policy != "expert":
+        parser.error("--inject-drop-once requires --policy expert")
     if args.check_model:
         model = mujoco.MjModel.from_xml_path(str(SCENE))
         print(f"Scene OK: {model.nbody} bodies, {model.nu} actuators")

@@ -62,3 +62,24 @@ JSON logs explicitly include `policy`, `vla_inference_executed`,
 `expert_uses_privileged_cube_poses`, `cubes_requested`, `cubes_in_bin`,
 `expert_physical_lifts`, `failure` and the final object positions. The CI runs
 one physically simulated cube attempt and uploads the actual GIF and JSON.
+
+## Non-resetting recovery after a drop
+
+In oracle `expert` mode, a failed lift, drop during travel or missed deposit
+does not end the simulation on the first failure. The fingers open, the arm
+physically retracts, and the teacher re-approaches the cube at its **current**
+MuJoCo position. The scene is never reset between attempts. Default:
+five additional retries per cube (six total attempts). After exhausting
+attempts on a cube, it proceeds to the next and reports skipped objects.
+
+```bash
+mjpython -m mobile_demo.run --cubes 1 --viewer --max-retries 5
+# Hold the final scene in the browser until Ctrl+C (default with --viewer).
+# Add --no-hold-viewer to exit immediately instead.
+mjpython -m mobile_demo.run --cubes 1 --inject-drop-once --max-retries 3 \
+  --gif mobile_runs/retry.gif --output mobile_runs/retry.json
+```
+
+Reports now include `retries`, `retry_events`, `attempts_per_cube`,
+`skipped_cubes`, and `failure`. The gripper can still lose the cube:
+recovery behavior being tested does not imply successful placement.

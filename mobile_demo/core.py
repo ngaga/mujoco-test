@@ -6,7 +6,7 @@ The expert uses privileged cube positions. No VLA is involved in expert rollouts
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import mujoco
@@ -121,12 +121,70 @@ class Expert:
     done: bool = False
     failure: str | None = None
     lifts: int = 0
+    max_retries: int = 5
+    retries: int = 0
+    attempts_per_cube: list[int] = field(default_factory=lambda: [0] * CUBE_COUNT)
+    retry_events: list[dict] = field(default_factory=list)
+    skipped_cubes: list[int] = field(default_factory=list)
+    last_error: str | None = None
+
+    def __post_init__(self):
+        if self.max_retries < 0:
+            raise ValueError("max_retries must be non-negative")
+
+    def safe_pose(self, env: MobileEnv):
+        """Stop the base, open jaws and retract/raise the gripper."""
+        target = env.state().astype(np.float64)
+        target[2] = 0
+        target[3] = 0.18
+        target[4] = 0.06
+        target[5:] = 0.0
+        return np.clip(target, LOW, HIGH)
+
+    def recover(self, env: MobileEnv, t: float, reason: str):
+        """Retry using the cube's CURRENT physical pose; never reset the scene."""
+        event = {"time": round(t, 3), "cube": self.cube,
+                 "attempt": self.attempts_per_cube[self.cube],
+                 "reason": reason,
+                 "cube_xyz": env.cube_position(self.cube).round(4).tolist()}
+        self.retry_events.append(event)
+        self.last_error = f"cube {self.cube}: {reason}"
+        if self.attempts_per_cube[self.cube] <= self.max_retries:
+            self.retries += 1
+            print(f"Retry {self.retries}: {self.last_error} at {event['cube_xyz']}",
+                  flush=True)
+            self.advance("recover", t)
+        else:
+            self.skipped_cubes.append(self.cube)
+            if self.cube == env.cubes - 1:
+                self.failure = (f"exhausted {self.attempts_per_cube[self.cube]} "
+                                f"attempts for last cube; skipped {self.skipped_cubes}")
+            else:
+                self.cube += 1
+                self.advance("recover", t)
+        return self.safe_pose(env)
 
     def action(self, env: MobileEnv):
         if self.done or self.failure:
-            return env.data.ctrl.copy()
+            return self.safe_pose(env)
         t = float(env.data.time)
         elapsed = t - self.entered
+        if self.phase == "recover":
+            target = self.safe_pose(env)
+            current = env.state()
+            if (elapsed >= 0.9 and abs(current[3] - target[3]) < 0.025
+                    and abs(current[4] - target[4]) < 0.025
+                    and max(current[5:]) < 0.012):
+                self.advance("navigate", t)
+            return target
+        # Do not grasp an object already deposited in the bin.
+        if env.in_bin(self.cube):
+            if self.cube == env.cubes - 1:
+                self.done = True
+                return self.safe_pose(env)
+            self.cube += 1
+            self.advance("recover", t)
+            return self.safe_pose(env)
         cube = env.cube_position(self.cube)
         current = env.state()
         target = current.astype(np.float64)
@@ -152,6 +210,7 @@ class Expert:
         elif self.phase == "lower":
             target[4] = -0.430
             if abs(current[4] - target[4]) < 0.012 and elapsed > 0.5:
+                self.attempts_per_cube[self.cube] += 1
                 self.advance("close", t)
         elif self.phase == "close":
             target[4] = -0.430
@@ -162,19 +221,19 @@ class Expert:
             target[5:] = 0.051
             if abs(current[4] - (-0.18)) < 0.02 and elapsed > 0.70:
                 if env.cube_position(self.cube)[2] < 0.10:
-                    self.failure = f"cube {self.cube}: gripper did not lift object"
+                    return self.recover(env, t, "gripper did not lift object")
                 else:
                     self.lifts += 1
                     self.advance("transport", t)
         elif self.phase == "transport":
             if cube[2] < 0.10 and elapsed > 0.4:
-                self.failure = f"cube {self.cube}: dropped during transport"
+                return self.recover(env, t, "dropped during transport")
             target[5:] = 0.051
             if np.linalg.norm(current[:2] - target[:2]) < 0.025 and elapsed > 0.35:
                 self.advance("approach_bin", t)
         elif self.phase == "approach_bin":
             if cube[2] < 0.10 and elapsed > 0.4:
-                self.failure = f"cube {self.cube}: dropped during bin approach"
+                return self.recover(env, t, "dropped during bin approach")
             target[5:] = 0.051
             if np.linalg.norm(current[:2] - target[:2]) < 0.025 and elapsed > 0.35:
                 self.advance("release", t)
@@ -184,12 +243,12 @@ class Expert:
         elif self.phase == "settle":
             if elapsed > 1.1:
                 if not env.in_bin(self.cube):
-                    self.failure = f"cube {self.cube}: release missed blue bin"
+                    return self.recover(env, t, "release missed blue bin")
                 elif self.cube == env.cubes - 1:
                     self.done = True
                 else:
                     self.cube += 1
-                    self.advance("navigate", t)
+                    self.advance("recover", t)
         return np.clip(target, LOW, HIGH)
 
     def advance(self, phase, t):
