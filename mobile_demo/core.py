@@ -18,6 +18,10 @@ JOINTS = ("base_x", "base_y", "base_yaw", "reach", "lift", "left_jaw", "right_ja
 CAMERAS = ("front", "wrist")
 ACTION_DIM = len(JOINTS)
 CUBE_COUNT = 5
+# Softer nominal pinch: symmetric slide 46 mm vs 51 mm previously.
+# With pads centered at +/-75 mm and pad half-width 8 mm, the nominal
+# free inner gap becomes 42 mm instead of 32 mm for a 48 mm-wide cube.
+GRIP_CLOSE = 0.046
 BIN_CENTER = np.array([0.95, 0.90], dtype=np.float64)
 # Positions as (x,y,yaw,reach,lift,left-jaw,right-jaw), in SI units.
 HOME = np.array([-1.21, -0.86, 0, 0.28, -0.18, 0, 0], dtype=np.float64)
@@ -214,11 +218,11 @@ class Expert:
                 self.advance("close", t)
         elif self.phase == "close":
             target[4] = -0.430
-            target[5:] = 0.051
+            target[5:] = GRIP_CLOSE
             if elapsed > 0.80:
                 self.advance("lift", t)
         elif self.phase == "lift":
-            target[5:] = 0.051
+            target[5:] = GRIP_CLOSE
             if abs(current[4] - (-0.18)) < 0.02 and elapsed > 0.70:
                 if env.cube_position(self.cube)[2] < 0.10:
                     return self.recover(env, t, "gripper did not lift object")
@@ -228,13 +232,13 @@ class Expert:
         elif self.phase == "transport":
             if cube[2] < 0.10 and elapsed > 0.4:
                 return self.recover(env, t, "dropped during transport")
-            target[5:] = 0.051
+            target[5:] = GRIP_CLOSE
             if np.linalg.norm(current[:2] - target[:2]) < 0.025 and elapsed > 0.35:
                 self.advance("approach_bin", t)
         elif self.phase == "approach_bin":
             if cube[2] < 0.10 and elapsed > 0.4:
                 return self.recover(env, t, "dropped during bin approach")
-            target[5:] = 0.051
+            target[5:] = GRIP_CLOSE
             if np.linalg.norm(current[:2] - target[:2]) < 0.025 and elapsed > 0.35:
                 self.advance("release", t)
         elif self.phase == "release":

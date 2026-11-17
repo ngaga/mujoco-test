@@ -48,15 +48,15 @@
           <camera name="wrist" pos="0.075 0 0.065" xyaxes="0 1 0 -0.7071 0 -0.7071" fovy="80"/>
           <body name="finger_left" pos="0 -0.075 -0.040">
             <joint name="left_jaw" type="slide" axis="0 1 0" range="0 0.055" limited="true" damping="2"/>
-            <geom name="left_pad" type="box" size="0.024 0.008 0.028" mass="0.025" friction="5.0 0.01 0.002" rgba="0.08 0.75 0.80 1"/>
-            <geom name="left_stop_front" type="box" pos="0.034 0 0.010" size="0.006 0.014 0.023" mass="0.006" friction="5.0 0.01 0.002" rgba="0.08 0.65 0.75 1"/>
-            <geom name="left_stop_back" type="box" pos="-0.034 0 0.010" size="0.006 0.014 0.023" mass="0.006" friction="5.0 0.01 0.002" rgba="0.08 0.65 0.75 1"/>
+            <geom name="left_pad" type="box" size="0.024 0.008 0.028" mass="0.025" friction="6.0 0.01 0.002" rgba="0.08 0.75 0.80 1"/>
+            <geom name="left_stop_front" type="box" pos="0.034 0 0.010" size="0.006 0.014 0.023" mass="0.006" friction="6.0 0.01 0.002" rgba="0.08 0.65 0.75 1"/>
+            <geom name="left_stop_back" type="box" pos="-0.034 0 0.010" size="0.006 0.014 0.023" mass="0.006" friction="6.0 0.01 0.002" rgba="0.08 0.65 0.75 1"/>
           </body>
           <body name="finger_right" pos="0 0.075 -0.040">
             <joint name="right_jaw" type="slide" axis="0 -1 0" range="0 0.055" limited="true" damping="2"/>
-            <geom name="right_pad" type="box" size="0.024 0.008 0.028" mass="0.025" friction="5.0 0.01 0.002" rgba="0.08 0.75 0.80 1"/>
-            <geom name="right_stop_front" type="box" pos="0.034 0 0.010" size="0.006 0.014 0.023" mass="0.006" friction="5.0 0.01 0.002" rgba="0.08 0.65 0.75 1"/>
-            <geom name="right_stop_back" type="box" pos="-0.034 0 0.010" size="0.006 0.014 0.023" mass="0.006" friction="5.0 0.01 0.002" rgba="0.08 0.65 0.75 1"/>
+            <geom name="right_pad" type="box" size="0.024 0.008 0.028" mass="0.025" friction="6.0 0.01 0.002" rgba="0.08 0.75 0.80 1"/>
+            <geom name="right_stop_front" type="box" pos="0.034 0 0.010" size="0.006 0.014 0.023" mass="0.006" friction="6.0 0.01 0.002" rgba="0.08 0.65 0.75 1"/>
+            <geom name="right_stop_back" type="box" pos="-0.034 0 0.010" size="0.006 0.014 0.023" mass="0.006" friction="6.0 0.01 0.002" rgba="0.08 0.65 0.75 1"/>
           </body>
         </body>
       </body>
@@ -83,7 +83,7 @@
     <position name="drive_yaw" joint="base_yaw" kp="100" kv="20" forcelimited="true" forcerange="-45 45"/>
     <position name="arm_reach" joint="reach" kp="400" kv="45" forcelimited="true" forcerange="-70 70"/>
     <position name="arm_lift" joint="lift" kp="550" kv="65" forcelimited="true" forcerange="-90 90"/>
-    <position name="jaw_left" joint="left_jaw" kp="300" kv="20" forcelimited="true" forcerange="-15 15"/>
-    <position name="jaw_right" joint="right_jaw" kp="300" kv="20" forcelimited="true" forcerange="-15 15"/>
+    <position name="jaw_left" joint="left_jaw" kp="300" kv="20" forcelimited="true" forcerange="-18 18"/>
+    <position name="jaw_right" joint="right_jaw" kp="300" kv="20" forcelimited="true" forcerange="-18 18"/>
   </actuator>
 </mujoco>
