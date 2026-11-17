@@ -24,7 +24,7 @@ HOME = np.array([-1.21, -0.86, 0, 0.28, -0.18, 0, 0], dtype=np.float64)
 LOW = np.array([-1.50, -1.50, -np.pi, 0.06, -0.475, 0, 0], dtype=np.float64)
 HIGH = np.array([1.50, 1.50, np.pi, 0.38, 0.08, 0.055, 0.055], dtype=np.float64)
 # Max slew rate for commanded position setpoints, not motor velocity limits.
-SLEW = np.array([0.30, 0.30, 0.9, 0.3, 0.30, 0.16, 0.16], dtype=np.float64)
+SLEW = np.array([0.10, 0.10, 0.9, 0.3, 0.30, 0.16, 0.16], dtype=np.float64)
 
 
 def validate_action(action):
@@ -155,11 +155,11 @@ class Expert:
                 self.advance("close", t)
         elif self.phase == "close":
             target[4] = -0.465
-            target[5:] = 0.051
+            target[5:] = 0.053
             if elapsed > 0.80:
                 self.advance("lift", t)
         elif self.phase == "lift":
-            target[5:] = 0.051
+            target[5:] = 0.053
             if abs(current[4] - (-0.18)) < 0.02 and elapsed > 0.70:
                 if env.cube_position(self.cube)[2] < 0.10:
                     self.failure = f"cube {self.cube}: gripper did not lift object"
@@ -167,11 +167,15 @@ class Expert:
                     self.lifts += 1
                     self.advance("transport", t)
         elif self.phase == "transport":
-            target[5:] = 0.051
+            if cube[2] < 0.10 and elapsed > 0.4:
+                self.failure = f"cube {self.cube}: dropped during transport"
+            target[5:] = 0.053
             if np.linalg.norm(current[:2] - target[:2]) < 0.025 and elapsed > 0.35:
                 self.advance("approach_bin", t)
         elif self.phase == "approach_bin":
-            target[5:] = 0.051
+            if cube[2] < 0.10 and elapsed > 0.4:
+                self.failure = f"cube {self.cube}: dropped during bin approach"
+            target[5:] = 0.053
             if np.linalg.norm(current[:2] - target[:2]) < 0.025 and elapsed > 0.35:
                 self.advance("release", t)
         elif self.phase == "release":

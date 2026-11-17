@@ -48,11 +48,11 @@
           <camera name="wrist" pos="0.075 0 0.065" xyaxes="0 1 0 -0.7071 0 -0.7071" fovy="80"/>
           <body name="finger_left" pos="0 -0.075 0">
             <joint name="left_jaw" type="slide" axis="0 1 0" range="0 0.055" limited="true" damping="2"/>
-            <geom name="left_pad" type="box" size="0.024 0.008 0.021" mass="0.025" friction="3.5 0.01 0.002" rgba="0.08 0.75 0.80 1"/>
+            <geom name="left_pad" type="box" size="0.024 0.008 0.021" mass="0.025" friction="5.0 0.01 0.002" rgba="0.08 0.75 0.80 1"/>
           </body>
           <body name="finger_right" pos="0 0.075 0">
             <joint name="right_jaw" type="slide" axis="0 -1 0" range="0 0.055" limited="true" damping="2"/>
-            <geom name="right_pad" type="box" size="0.024 0.008 0.021" mass="0.025" friction="3.5 0.01 0.002" rgba="0.08 0.75 0.80 1"/>
+            <geom name="right_pad" type="box" size="0.024 0.008 0.021" mass="0.025" friction="5.0 0.01 0.002" rgba="0.08 0.75 0.80 1"/>
           </body>
         </body>
       </body>
