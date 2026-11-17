@@ -1,0 +1,1 @@
+"""Independent mobile-manipulation research prototype for MuJoCo 4."""
