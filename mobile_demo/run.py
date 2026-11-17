@@ -124,8 +124,11 @@ def execute(args):
                 if gif_renderer and step % 6 == 0:
                     frames_for_gif.append(env.render("overview", renderer=gif_renderer))
                 if step % 30 == 0:
+                    pos = env.cube_position(expert.cube if expert else 0)
                     print(f"t={env.data.time:.1f}s cubes={env.placed()}/{env.cubes} "
-                          f"phase={expert.phase if expert else 'VLA'}", flush=True)
+                          f"phase={expert.phase if expert else 'VLA'} "
+                          f"base={env.state()[:2].round(3).tolist()} "
+                          f"cube_xyz={pos.round(3).tolist()}", flush=True)
                 if expert and (expert.done or expert.failure):
                     break
                 if env.placed() == env.cubes and not expert:

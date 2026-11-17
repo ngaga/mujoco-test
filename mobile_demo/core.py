@@ -24,7 +24,7 @@ HOME = np.array([-1.21, -0.86, 0, 0.28, -0.18, 0, 0], dtype=np.float64)
 LOW = np.array([-1.50, -1.50, -np.pi, 0.06, -0.475, 0, 0], dtype=np.float64)
 HIGH = np.array([1.50, 1.50, np.pi, 0.38, 0.08, 0.055, 0.055], dtype=np.float64)
 # Max slew rate for commanded position setpoints, not motor velocity limits.
-SLEW = np.array([0.7, 0.7, 1.3, 0.4, 0.33, 0.16, 0.16], dtype=np.float64)
+SLEW = np.array([0.30, 0.30, 0.9, 0.3, 0.30, 0.16, 0.16], dtype=np.float64)
 
 
 def validate_action(action):
@@ -45,7 +45,7 @@ class MobileEnv:
         self.model = mujoco.MjModel.from_xml_path(str(SCENE))
         self.data = mujoco.MjData(self.model)
         self.cubes = cubes
-        self.qpos_addr = [int(self.model.joint(j).qposadr[0]) for j in JOINTS]
+        self.qpos_addr = [int(self.model.jnt_qposadr[self.model.joint(j).id]) for j in JOINTS]
         self.cube_bodies = [self.model.body(f"red_{i}").id for i in range(CUBE_COUNT)]
         self.reset()
 
@@ -137,8 +137,15 @@ class Expert:
         target[5:] = 0.0
         if self.phase in ("navigate", "lower", "close", "lift"):
             target[:2] = (cube[0] - 0.28, cube[1])
+        elif self.phase == "transport":
+            # Route around the bin corner with the gripper ABOVE its rim.
+            # No-object/chassis collisions are solved by actual MuJoCo physics.
+            target[:2] = (BIN_CENTER[0] - 0.39, BIN_CENTER[1] - 0.49)
         else:
-            target[:2] = (BIN_CENTER[0] - 0.28, BIN_CENTER[1])
+            # 0.39 m chassis clearance from bin center (radius 0.17 m).
+            # Reach 0.37 m deposits inside the bin rather than on its wall.
+            target[:2] = (BIN_CENTER[0] - 0.39, BIN_CENTER[1])
+            target[3] = 0.37
         if self.phase == "navigate":
             if np.linalg.norm(current[:2] - target[:2]) < 0.022 and elapsed > 0.35:
                 self.advance("lower", t)
@@ -160,6 +167,10 @@ class Expert:
                     self.lifts += 1
                     self.advance("transport", t)
         elif self.phase == "transport":
+            target[5:] = 0.051
+            if np.linalg.norm(current[:2] - target[:2]) < 0.025 and elapsed > 0.35:
+                self.advance("approach_bin", t)
+        elif self.phase == "approach_bin":
             target[5:] = 0.051
             if np.linalg.norm(current[:2] - target[:2]) < 0.025 and elapsed > 0.35:
                 self.advance("release", t)
