@@ -49,28 +49,32 @@
           <body name="finger_left" pos="0 -0.075 -0.040">
             <joint name="left_jaw" type="slide" axis="0 1 0" range="0 0.055" limited="true" damping="2"/>
             <geom name="left_pad" type="box" size="0.024 0.008 0.028" mass="0.025" friction="5.0 0.01 0.002" rgba="0.08 0.75 0.80 1"/>
+            <geom name="left_stop_front" type="box" pos="0.034 0 0.010" size="0.006 0.014 0.023" mass="0.006" friction="5.0 0.01 0.002" rgba="0.08 0.65 0.75 1"/>
+            <geom name="left_stop_back" type="box" pos="-0.034 0 0.010" size="0.006 0.014 0.023" mass="0.006" friction="5.0 0.01 0.002" rgba="0.08 0.65 0.75 1"/>
           </body>
           <body name="finger_right" pos="0 0.075 -0.040">
             <joint name="right_jaw" type="slide" axis="0 -1 0" range="0 0.055" limited="true" damping="2"/>
             <geom name="right_pad" type="box" size="0.024 0.008 0.028" mass="0.025" friction="5.0 0.01 0.002" rgba="0.08 0.75 0.80 1"/>
+            <geom name="right_stop_front" type="box" pos="0.034 0 0.010" size="0.006 0.014 0.023" mass="0.006" friction="5.0 0.01 0.002" rgba="0.08 0.65 0.75 1"/>
+            <geom name="right_stop_back" type="box" pos="-0.034 0 0.010" size="0.006 0.014 0.023" mass="0.006" friction="5.0 0.01 0.002" rgba="0.08 0.65 0.75 1"/>
           </body>
         </body>
       </body>
     </body>
     <body name="red_0" pos="-0.73 -0.86 0.025">
-      <freejoint name="cube_0"/><geom name="cube_geom_0" type="box" size="0.024 0.024 0.024" mass="0.045" rgba="0.94 0.10 0.09 1" friction="2.4 0.01 0.002"/>
+      <freejoint name="cube_0"/><geom name="cube_geom_0" type="box" size="0.024 0.024 0.024" mass="0.012" rgba="0.94 0.10 0.09 1" friction="2.4 0.01 0.002"/>
     </body>
     <body name="red_1" pos="-0.35 0.42 0.025">
-      <freejoint name="cube_1"/><geom name="cube_geom_1" type="box" size="0.024 0.024 0.024" mass="0.045" rgba="0.94 0.10 0.09 1" friction="2.4 0.01 0.002"/>
+      <freejoint name="cube_1"/><geom name="cube_geom_1" type="box" size="0.024 0.024 0.024" mass="0.012" rgba="0.94 0.10 0.09 1" friction="2.4 0.01 0.002"/>
     </body>
     <body name="red_2" pos="0.42 -0.68 0.025">
-      <freejoint name="cube_2"/><geom name="cube_geom_2" type="box" size="0.024 0.024 0.024" mass="0.045" rgba="0.94 0.10 0.09 1" friction="2.4 0.01 0.002"/>
+      <freejoint name="cube_2"/><geom name="cube_geom_2" type="box" size="0.024 0.024 0.024" mass="0.012" rgba="0.94 0.10 0.09 1" friction="2.4 0.01 0.002"/>
     </body>
     <body name="red_3" pos="-0.86 0.77 0.025">
-      <freejoint name="cube_3"/><geom name="cube_geom_3" type="box" size="0.024 0.024 0.024" mass="0.045" rgba="0.94 0.10 0.09 1" friction="2.4 0.01 0.002"/>
+      <freejoint name="cube_3"/><geom name="cube_geom_3" type="box" size="0.024 0.024 0.024" mass="0.012" rgba="0.94 0.10 0.09 1" friction="2.4 0.01 0.002"/>
     </body>
     <body name="red_4" pos="0.50 0.18 0.025">
-      <freejoint name="cube_4"/><geom name="cube_geom_4" type="box" size="0.024 0.024 0.024" mass="0.045" rgba="0.94 0.10 0.09 1" friction="2.4 0.01 0.002"/>
+      <freejoint name="cube_4"/><geom name="cube_geom_4" type="box" size="0.024 0.024 0.024" mass="0.012" rgba="0.94 0.10 0.09 1" friction="2.4 0.01 0.002"/>
     </body>
   </worldbody>
   <actuator>
