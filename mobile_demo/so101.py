@@ -198,9 +198,13 @@ class MobileSO101Env:
         return self.data.site("tcp").xpos.copy()
 
     def in_bin(self, i):
+        # Real blue bin wall top is z=0.131m. A 24mm cube stacked on other
+        # cubes can have its centre at 0.09-0.12m and still be physically
+        # inside the bin. Our old 85mm cutoff falsely flagged stacked cubes
+        # as missed deliveries and made the robot regrasp them.
         x, y, z = self.cube_position(i)
         return bool(abs(x - BIN_CENTER[0]) < 0.17
-                    and abs(y - BIN_CENTER[1]) < 0.17 and 0.025 < z < 0.085)
+                    and abs(y - BIN_CENTER[1]) < 0.17 and 0.025 < z < 0.120)
 
     def placed(self):
         return sum(self.in_bin(i) for i in range(self.cubes))
