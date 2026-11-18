@@ -1,5 +1,6 @@
 """Physical regression tests of the actual SO-101 on our old 3DOF mobile base."""
 import unittest
+from importlib.util import find_spec
 
 import mujoco
 import numpy as np
@@ -10,6 +11,10 @@ from mobile_demo.so101 import (
 )
 
 
+@unittest.skipUnless(
+    find_spec("sim2cell") is not None,
+    "Pinned SO-101 assets are optional in generic CI; mandatory in mobile-so101.yml",
+)
 class MobileSO101Tests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
