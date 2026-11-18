@@ -1,0 +1,82 @@
+name: SO101 vision vs oracle and visual bin clearance
+
+on:
+  pull_request:
+    paths:
+      - "mobile_demo/so101.py"
+      - "mobile_demo/vision_rgb.py"
+      - "tests/test_mobile_rgb.py"
+      - ".github/workflows/mobile-vision.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  vision-comparison:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      MUJOCO_GL: osmesa
+      PYOPENGL_PLATFORM: osmesa
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install Mesa and actual SO101 workcell
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libosmesa6 libosmesa6-dev libgl1-mesa-dri
+          python -m pip install -r requirements.txt -r mobile_demo/so101_requirements.txt
+      - name: Unit tests and exact three-cube scene count
+        run: |
+          python -m unittest discover -s tests -p 'test_mobile_rgb.py' -v
+          python -m unittest discover -s tests -p 'test_mobile_so101.py' -v
+      - name: Oracle baseline single-cube delivery
+        run: |
+          python -m mobile_demo.so101 --cubes 1 --perception oracle \
+            --max-steps 1400 --require-success \
+            --output mobile_runs/oracle_one.json
+      - name: Oracle baseline three-cube delivery on identical scene
+        run: |
+          python -m mobile_demo.so101 --cubes 3 --perception oracle \
+            --max-steps 4500 --require-success \
+            --output mobile_runs/oracle_three.json
+      - name: Actual two-camera pixel-based local grasp, one cube
+        run: |
+          python -m mobile_demo.so101 --cubes 1 --perception rgb \
+            --max-steps 1400 --output mobile_runs/rgb_one.json
+      - name: Actual two-camera pixel-based local grasp, three cubes
+        run: |
+          python -m mobile_demo.so101 --cubes 3 --perception rgb \
+            --max-steps 4500 --output mobile_runs/rgb_three.json
+      - name: Compare measured results and assert real RGB frames
+        run: |
+          python - <<'PY'
+          import json
+          rows={}
+          for name in ('oracle_one', 'oracle_three', 'rgb_one', 'rgb_three'):
+              with open('mobile_runs/' + name + '.json') as f:
+                  rows[name] = json.load(f)
+          for name in ('rgb_one', 'rgb_three'):
+              r = rows[name]
+              vision = r['rgb_perception']
+              assert vision and vision['frames'] > 0
+              assert vision['frames_with_target'] > 0, r
+              assert vision['camera_detections']['front'] + vision['camera_detections']['wrist'] > 0
+              assert r['perception'] == 'rgb'
+              print(name, 'success=', r['success'], 'placed=', r['cubes_in_bin'],
+                    'frames=', vision['frames'], 'seen=', vision['frames_with_target'],
+                    'mean_xy_error_m=', vision['mean_error_m'])
+          assert rows['oracle_one']['success'] and rows['oracle_three']['success']
+          print("Oracle: 1/1 and 3/3 (matched deterministic initial scenes)")
+          PY
+      - name: Upload all actual rollouts and sensor comparison
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: so101-rgb-versus-oracle
+          path: mobile_runs/
+          if-no-files-found: warn

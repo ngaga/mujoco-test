@@ -39,7 +39,9 @@ CLOSED = -0.05
 # can extend past the chassis at this clearance.
 PICK_CLEARANCE = 0.39
 MOUNT_XYZ = (0.14, 0.0, 0.20)
-# Visual wheel protrudes 0.225m forward, not the 0.17m collision chassis.
+# The visible front omni-wheel reaches 0.225m ahead of the base centre,
+# while the collision-only chassis radius is merely 0.17m. Keep the wheel
+# outside the physical left edge of the bin (x=0.75) with 25mm margin.
 VISUAL_BASE_FRONT = 0.15 + 0.075
 VISUAL_BIN_MARGIN = 0.025
 BIN_LEFT_EDGE = float(BIN_CENTER[0]) - 0.20
@@ -134,6 +136,8 @@ def compose_xml(cubes: int = CUBE_COUNT) -> str:
     # This workcell uses 24mm blocks (the same as the successful SO-101 VLA
     # experiments), not the original 48mm blocks that could be wider than the
     # actual jaw aperture. This difference is explicit, not a fair A/B test.
+    # Do not just mark the extras inactive: remove their bodies from the
+    # compiled visual AND physical scene so --cubes 3 shows precisely 3.
     worldbody = root.find("worldbody")
     for i in range(CUBE_COUNT):
         cube = worldbody.find(f"body[@name='red_{i}']")
@@ -243,7 +247,14 @@ class ExpertSO101:
     _last_ik_error: float | None = None
     _last_ik_time: float = -1.0
     max_ik_error: float = 0.0
+    # Do not accept a fleeting instant inside the bin as final delivery:
+    # previously an object left the bin in the last physics step after done.
     _all_settled_since: float | None = None
+    # Optional real RGB localizer. Navigation, post-grasp checks and bin
+    # success still use simulator truth in this staged/hybrid experiment.
+    vision: object | None = None
+    _vision_xy: np.ndarray | None = None
+    _last_vision_time: float = -1.0
 
     def advance(self, phase, t):
         self.phase, self.entered = phase, t
@@ -261,6 +272,8 @@ class ExpertSO101:
         self._hold_arm_q = None
         self._carry_offset = None
         self._all_settled_since = None
+        self._vision_xy = None
+        self._last_vision_time = -1.0
         if self.attempts[self.cube] <= self.max_retries:
             self.advance("recover", float(env.data.time))
         elif self.cube + 1 < env.cubes:
@@ -308,12 +321,18 @@ class ExpertSO101:
         # to press into the bin FLOOR on the five-cube scenario.
         if self.phase in ("navigate", "recover", "hover", "descend") and env.in_bin(self.cube):
             if self.cube == env.cubes - 1:
-                missing = next((i for i in range(env.cubes) if not env.in_bin(i)), None)
+                missing = next((i for i in range(env.cubes)
+                                if not env.in_bin(i)), None)
                 if missing is None:
                     if self._all_settled_since is None:
                         self._all_settled_since = t
                     if t - self._all_settled_since >= 1.25:
                         self.done = True
+                    return self.safe(env)
+                # Previously deposited blocks can be knocked out by a later
+                # release. Don't mark complete until ALL are still in bin.
+                if self.attempts[missing] > self.max_retries:
+                    self.failure = f"Previously delivered cube {missing} left bin and exhausted attempts"
                     return self.safe(env)
                 self.cube = missing
                 self.advance("recover", t)
@@ -343,15 +362,49 @@ class ExpertSO101:
             return cmd
 
         if self.phase in ("hover", "descend", "close", "lift"):
-            # Follow the REAL cube location before closing the jaws; freeze the
-            # target only once fingers are correctly aligned and squeezing.
-            pick_xy = (cube[:2] if self.phase in ("hover", "descend")
-                       else (self._pick_xy if self._pick_xy is not None else cube[:2]))
-            cmd[:2] = (self._pick_base_goal if self._pick_base_goal is not None
-                       else pick_xy - np.array([PICK_CLEARANCE, 0]))
-            # A cube sitting on an elevated surface cannot be approached
-            # with the floor-level 18 mm TCP target. Match cube elevation.
-            grasp_z = max(0.018, float(cube[2]) + 0.006)
+            # Progressive autonomy: only HOVER/DESCEND grasp target switches
+            # from privileged simulator cube XY to actual RGB measurements.
+            # Navigation still uses oracle cube XY and bin delivery uses truth.
+            if self.vision is not None and self.phase in ("hover", "descend"):
+                if self._pick_base_goal is None:
+                    raise RuntimeError("RGB grasp requires navigator's base-relative approach pose")
+                expected_xy = self._pick_base_goal + np.array([PICK_CLEARANCE, 0.0])
+                if self._last_vision_time < 0 or t - self._last_vision_time > 0.30:
+                    measurement = self.vision.observe(env, expected_xy)
+                    self._last_vision_time = t
+                    if measurement is not None:
+                        self._vision_xy = measurement
+                        # Evaluation metric ONLY, never used as input by estimator
+                        # or as a control or gating condition.
+                        self.vision.error_m.append(
+                            float(np.linalg.norm(measurement - cube[:2])))
+                if self._vision_xy is None:
+                    if elapsed > 4.0:
+                        self.attempts[self.cube] += 1
+                        return self.recover(env, "RGB cube target not visible")
+                    cmd[:2] = self._pick_base_goal
+                    return cmd
+                pick_xy = self._vision_xy.copy()
+            elif self.phase in ("hover", "descend"):
+                pick_xy = cube[:2].copy()
+            else:
+                pick_xy = (self._pick_xy if self._pick_xy is not None
+                           else (self._vision_xy if self._vision_xy is not None
+                                 else cube[:2].copy()))
+            if self.vision is not None and self.phase in ("hover", "descend"):
+                # While the jaws are OPEN, correct the actual mobile base pose
+                # using pixels so the SO-101 wrist stays in its reachable
+                # workspace instead of pushing the cube away at arm reach limit.
+                cmd[:2] = np.asarray(pick_xy) - np.array([PICK_CLEARANCE, 0.0])
+            else:
+                # Once fingers close, keep the last corrected base position:
+                # moving the mobile chassis would tear the object from the grip.
+                cmd[:2] = (self._pick_base_goal if self._pick_base_goal is not None
+                           else pick_xy - np.array([PICK_CLEARANCE, 0]))
+            # In RGB mode we know tabletop geometry, not the cube's actual Z.
+            # On the oracle baseline, retain the adaptive Z for elevated cubes.
+            grasp_z = (0.018 if self.vision is not None else
+                       max(0.018, float(cube[2]) + 0.006))
             height = {"hover": max(0.095, grasp_z + 0.075),
                       "descend": grasp_z,
                       "close": grasp_z, "lift": max(0.20, grasp_z + 0.182)}[self.phase]
@@ -384,7 +437,8 @@ class ExpertSO101:
                     if xy_error < 0.009 and z_error < 0.014:
                         # Close on the last successful approach target: do
                         # not create a new IK solution during finger contact.
-                        self._pick_xy = cube[:2].copy()
+                        self._pick_xy = pick_xy.copy()
+                        self._pick_base_goal = np.asarray(cmd[:2]).copy()
                         aligned_q = self._phase_arm_q.copy()
                         self.attempts[self.cube] += 1
                         self.advance("close", t)
@@ -410,8 +464,9 @@ class ExpertSO101:
         offset = (self._carry_offset if self._carry_offset is not None
                   else np.array([PICK_CLEARANCE, 0]))
         base_goal = BIN_CENTER - offset
-        # The non-colliding visual front wheel would clip the bin at X=0.56.
-        # Keep the full visual 225mm wheel extent 25mm outside the left wall.
+        # Physical contact detection did not catch the DECORATIVE wheels:
+        # they are non-colliding visual geoms and overhang the chassis.
+        # Clamp bin approach so the visual wheel envelope clears the wall.
         base_goal[0] = min(float(base_goal[0]), MAX_BIN_APPROACH_BASE_X)
         cmd[3:8] = self._hold_arm_q if self._hold_arm_q is not None else current[3:8]
         cmd[8] = CLOSED
@@ -434,7 +489,8 @@ class ExpertSO101:
                 if not env.in_bin(self.cube) or env.state()[8] < 0.8:
                     return self.recover(env, "missed blue bin or jaw not open after release")
                 if self.cube == env.cubes - 1:
-                    missing = next((i for i in range(env.cubes) if not env.in_bin(i)), None)
+                    missing = next((i for i in range(env.cubes)
+                                    if not env.in_bin(i)), None)
                     if missing is None:
                         if self._all_settled_since is None:
                             self._all_settled_since = t
@@ -442,8 +498,11 @@ class ExpertSO101:
                             self.done = True
                     else:
                         self._all_settled_since = None
-                        self.cube = missing
-                        self.advance("recover", t)
+                        if self.attempts[missing] > self.max_retries:
+                            self.failure = f"Cube {missing} still outside bin after retry budget"
+                        else:
+                            self.cube = missing
+                            self.advance("recover", t)
                 else:
                     self.cube += 1
                     self.advance("recover", t)
@@ -453,9 +512,14 @@ class ExpertSO101:
 
 
 def execute(cubes=1, max_steps=1000, max_retries=2,
-            viewer=False, viewer_port=8080):
+            viewer=False, viewer_port=8080, perception="oracle"):
+    if perception not in ("oracle", "rgb"):
+        raise ValueError("perception must be 'oracle' or 'rgb'")
     env = MobileSO101Env(cubes=cubes)
     expert = ExpertSO101(max_retries=max_retries)
+    if perception == "rgb":
+        from .vision_rgb import SO101RGBLocalizer
+        expert.vision = SO101RGBLocalizer(env.model)
     from contextlib import nullcontext
     if viewer:
         from mujoco.studio import launch_web, viewer_protocol
@@ -465,7 +529,8 @@ def execute(cubes=1, max_steps=1000, max_retries=2,
     else:
         ctx = nullcontext(None)
     telemetry = []
-    with ctx as display:
+    try:
+      with ctx as display:
         last = time.perf_counter()
         for step in range(max_steps):
             if display and not display.is_running():
@@ -490,10 +555,17 @@ def execute(cubes=1, max_steps=1000, max_retries=2,
                 last = time.perf_counter()
             if expert.done or expert.failure:
                 break
+    finally:
+        # Release the two headless camera renderers; viewer is separate.
+        if expert.vision is not None:
+            expert.vision.close()
     result = {
         "robot": "real sim2cell SO-ARM100/101 mechanical MJCF on EarlyBots mobile base",
         "base": "original holonomic 3DOF position-servo proxy, wheels still visual only",
-        "policy": "oracle + DLS IK; NOT pretrained VLA",
+        "policy": ("oracle navigation + RGB front/wrist local grasp + DLS IK"
+                   if perception == "rgb" else "oracle navigation + oracle grasp + DLS IK"),
+        "perception": perception,
+        "rgb_perception": expert.vision.report() if expert.vision is not None else None,
         "cube_side_m": 0.024,
         "cubes_requested": cubes, "cubes_in_bin": env.placed(),
         "success": bool(expert.done and env.placed() == cubes),
@@ -519,6 +591,8 @@ def main(argv=None):
     parser.add_argument("--check-model", action="store_true")
     parser.add_argument("--cubes", type=int, default=1)
     parser.add_argument("--max-steps", type=int, default=1000)
+    parser.add_argument("--perception", choices=("oracle", "rgb"), default="oracle",
+                        help="rgb uses rendered front/wrist pixels for local cube XY; long-range navigation remains oracle")
     parser.add_argument("--max-retries", type=int, default=2)
     parser.add_argument("--viewer", action="store_true")
     parser.add_argument("--viewer-port", type=int, default=8080)
@@ -536,7 +610,7 @@ def main(argv=None):
                           "cameras": ["front", "wrist"]}, indent=2))
         return
     report = execute(args.cubes, args.max_steps, args.max_retries,
-                     args.viewer, args.viewer_port)
+                     args.viewer, args.viewer_port, args.perception)
     args.output.parent.mkdir(exist_ok=True, parents=True)
     args.output.write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps(report, indent=2), flush=True)
