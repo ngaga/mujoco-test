@@ -86,7 +86,10 @@ class MobileSO101Tests(unittest.TestCase):
         for phase in ("navigate", "hover", "descend", "recover"):
             expert = ExpertSO101(cube=0, phase=phase)
             action = expert.action(self.env)
-            self.assertTrue(expert.done, phase)
+            # A cube already in the bin must not be regrasped. Completion
+            # still waits for 1.25 seconds of continuous stability.
+            self.assertFalse(expert.done, phase)
+            self.assertIsNotNone(expert._all_settled_since, phase)
             self.assertEqual(expert.attempts[0], 0, phase)
             self.assertTrue(np.isfinite(action).all())
 
