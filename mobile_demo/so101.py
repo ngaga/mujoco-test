@@ -288,7 +288,11 @@ class ExpertSO101:
         # Never claim success while the cube is still held in transport.
         # The bin occupancy check is meaningful only before pickup or after
         # the release+settle stage, with an actual low resting cube height.
-        if self.phase in ("navigate", "recover") and env.in_bin(self.cube):
+        # Once a cube settles inside the blue bin, it must not be picked again,
+        # including when this happens mid-approach/descend during a retry.
+        # Regrasping an already delivered cube caused the real jaw geometry
+        # to press into the bin FLOOR on the five-cube scenario.
+        if self.phase in ("navigate", "recover", "hover", "descend") and env.in_bin(self.cube):
             if self.cube == env.cubes - 1:
                 self.done = True
                 return self.safe(env)
@@ -323,8 +327,12 @@ class ExpertSO101:
                        else (self._pick_xy if self._pick_xy is not None else cube[:2]))
             cmd[:2] = (self._pick_base_goal if self._pick_base_goal is not None
                        else pick_xy - np.array([PICK_CLEARANCE, 0]))
-            height = {"hover": 0.095, "descend": 0.018,
-                      "close": 0.018, "lift": 0.20}[self.phase]
+            # A cube sitting on an elevated surface cannot be approached
+            # with the floor-level 18 mm TCP target. Match cube elevation.
+            grasp_z = max(0.018, float(cube[2]) + 0.006)
+            height = {"hover": max(0.095, grasp_z + 0.075),
+                      "descend": grasp_z,
+                      "close": grasp_z, "lift": max(0.20, grasp_z + 0.182)}[self.phase]
             if (self.phase in ("hover", "descend")
                     and (self._last_ik_time < 0 or t - self._last_ik_time >= 0.25)):
                 # A position command cached at phase entry stops working if
