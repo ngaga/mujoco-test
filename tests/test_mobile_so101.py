@@ -7,7 +7,7 @@ import numpy as np
 
 from mobile_demo.so101 import (
     ACTUATORS, ARM_JOINTS, CLOSED, ExpertSO101,
-    HOME, MobileSO101Env,
+    HOME, MobileSO101Env, MAX_BIN_APPROACH_BASE_X, BIN_LEFT_EDGE, VISUAL_BASE_FRONT, VISUAL_BIN_MARGIN,
 )
 
 
@@ -86,9 +86,57 @@ class MobileSO101Tests(unittest.TestCase):
         for phase in ("navigate", "hover", "descend", "recover"):
             expert = ExpertSO101(cube=0, phase=phase)
             action = expert.action(self.env)
-            self.assertTrue(expert.done, phase)
+            # A cube already in the bin must not be regrasped. Completion
+            # still waits for 1.25 seconds of continuous stability.
+            self.assertFalse(expert.done, phase)
+            self.assertIsNotNone(expert._all_settled_since, phase)
             self.assertEqual(expert.attempts[0], 0, phase)
             self.assertTrue(np.isfinite(action).all())
+
+    def test_requested_three_cubes_are_only_three_visible_physical_bodies(self):
+        for n in (1, 3, 5):
+            env = MobileSO101Env(cubes=n)
+            self.assertEqual(env.cubes, n)
+            self.assertEqual(len(env.cube_bodies), n)
+            names = [env.model.body(i).name for i in range(env.model.nbody)]
+            self.assertEqual(sum(name.startswith("red_") for name in names), n)
+            for k in range(n, 5):
+                self.assertNotIn(f"red_{k}", names)
+            self.assertEqual(env.placed(), 0)
+
+    def test_visual_wheel_clears_bin_left_wall(self):
+        self.assertLessEqual(MAX_BIN_APPROACH_BASE_X
+                             + VISUAL_BASE_FRONT + VISUAL_BIN_MARGIN,
+                             BIN_LEFT_EDGE + 1e-8)
+        # Old bin goal was at X=0.56: visible wheel reached X=0.785
+        # despite the colliding chassis only reaching X=0.73.
+        self.assertLess(MAX_BIN_APPROACH_BASE_X, 0.56)
+
+    def test_no_false_success_if_earlier_cube_left_the_bin(self):
+        env = MobileSO101Env(cubes=3)
+        for k in (1, 2):
+            adr = int(env.model.jnt_qposadr[env.model.joint(f"cube_{k}").id])
+            env.data.qpos[adr:adr + 3] = [0.94 + 0.025 * (k - 1), 0.9, 0.042]
+        mujoco.mj_forward(env.model, env.data)
+        self.assertTrue(env.in_bin(2))
+        self.assertFalse(env.in_bin(0))
+        expert = ExpertSO101(cube=2, phase="settle", entered=-5.0)
+        expert.action(env)
+        self.assertFalse(expert.done)
+        self.assertEqual(expert.cube, 0)
+        self.assertEqual(expert.phase, "recover")
+
+    def test_completion_requires_stable_full_bin(self):
+        env = MobileSO101Env(cubes=3)
+        for k in range(3):
+            adr = int(env.model.jnt_qposadr[env.model.joint(f"cube_{k}").id])
+            env.data.qpos[adr:adr + 3] = [0.92 + k * 0.025, 0.90, 0.042]
+        mujoco.mj_forward(env.model, env.data)
+        self.assertEqual(env.placed(), 3)
+        expert = ExpertSO101(cube=2, phase="settle", entered=-4.0)
+        expert.action(env)
+        self.assertFalse(expert.done)
+        self.assertIsNotNone(expert._all_settled_since)
 
     def test_real_cube_free_joint_and_correct_size(self):
         model = self.env.model
