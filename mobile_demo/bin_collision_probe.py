@@ -40,6 +40,35 @@ def monitored_pairs(model):
     return robot, bins
 
 
+def visible_wheel_bin_clearance(model, data):
+    """Conservative plan-view gap between visual wheels and every blue-bin geom.
+
+    Decorative wheels have contype=0, so MuJoCo never generates their contact
+    manifold. This independently checks what a viewer sees, not merely what
+    the physics engine knows as collidable.
+    """
+    wheels = [model.geom(f"wheel_{key}").id for key in ("a", "b", "c")]
+    bin_geoms = [model.geom(name).id for name in
+                 ("bin_base", "bin_back", "bin_front", "bin_left", "bin_right")]
+    min_gap = float("inf")
+    worst_pair = None
+    for wheel in wheels:
+        c = data.geom_xpos[wheel]
+        radius = float(model.geom_size[wheel, 0])
+        for box in bin_geoms:
+            p = data.geom_xpos[box]
+            half = model.geom_size[box]
+            # Conservative vertical bounding ranges for the rotated wheels.
+            if abs(float(c[2] - p[2])) > radius + float(half[2]):
+                continue
+            delta = np.maximum(np.abs(c[:2] - p[:2]) - half[:2], 0.0)
+            gap = float(np.linalg.norm(delta) - radius)
+            if gap < min_gap:
+                min_gap = gap
+                worst_pair = f"{model.geom(wheel).name} | {model.geom(box).name}"
+    return min_gap, worst_pair
+
+
 def rollout(cubes=1, max_steps=1000, max_retries=2):
     env = MobileSO101Env(cubes=cubes)
     expert = ExpertSO101(max_retries=max_retries)
@@ -51,11 +80,27 @@ def rollout(cubes=1, max_steps=1000, max_retries=2):
     worst = 0.0
     count_physics_steps = 0
     first_collision = None
+    min_visual_wheel_gap = float("inf")
+    visual_overlap_samples = 0
+    first_visual_overlap = None
+    visual_worst_pair = None
     for step in range(max_steps):
         command = expert.action(env)
         for _ in range(round(1 / (15 * env.model.opt.timestep))):
             env.step(command, frames=1)
             count_physics_steps += 1
+            gap, pair = visible_wheel_bin_clearance(env.model, env.data)
+            if gap < min_visual_wheel_gap:
+                min_visual_wheel_gap, visual_worst_pair = gap, pair
+            if gap < -0.001:
+                visual_overlap_samples += 1
+                if first_visual_overlap is None:
+                    first_visual_overlap = {
+                        "time": round(float(env.data.time), 3),
+                        "phase": expert.phase, "pair": pair,
+                        "estimated_visual_overlap_mm": round(-gap * 1000, 3),
+                        "base_xy": env.state()[:2].round(4).tolist(),
+                    }
             contacts = env.data.contact
             for contact in contacts:
                 g1, g2 = int(contact.geom1), int(contact.geom2)
@@ -101,6 +146,12 @@ def rollout(cubes=1, max_steps=1000, max_retries=2):
         "max_robot_bin_penetration_mm": round(worst * 1000, 4),
         "first_collision": first_collision,
         "severe_examples": episodes,
+        "visible_wheel_overlaps_gt_1mm_samples": visual_overlap_samples,
+        "worst_visible_wheel_pair": visual_worst_pair,
+        "min_conservative_visual_wheel_gap_mm":
+            round(min_visual_wheel_gap * 1000, 4),
+        "first_visual_overlap": first_visual_overlap,
+        "visual_wheel_metric": "conservative wheel radial footprint against bin bounding boxes (non-contact display geometry)",
         "collision_definition": "Robot and blue bin collision geoms, not red cubes vs bin",
     }
 
