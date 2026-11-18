@@ -71,7 +71,9 @@ jobs:
                     'frames=', vision['frames'], 'seen=', vision['frames_with_target'],
                     'mean_xy_error_m=', vision['mean_error_m'])
           assert rows['oracle_one']['success'] and rows['oracle_three']['success']
-          print("Oracle: 1/1 and 3/3 (matched deterministic initial scenes)")
+          assert rows['rgb_one']['success'], 'RGB vision must physically deliver 1/1'
+          assert rows['rgb_three']['success'], 'RGB vision must physically deliver 3/3'
+          print("Oracle and RGB both delivered every cube on matched 1- and 3-cube scenes")
           PY
       - name: Upload all actual rollouts and sensor comparison
         if: always()
