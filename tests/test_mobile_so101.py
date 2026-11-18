@@ -77,6 +77,19 @@ class MobileSO101Tests(unittest.TestCase):
         self.assertFalse(self.env.in_bin(0))
         self.assertEqual(self.env.placed(), 0)
 
+    def test_already_placed_cube_is_not_regrasped_from_inside_bin(self):
+        joint = self.env.model.joint("cube_0")
+        adr = int(self.env.model.jnt_qposadr[joint.id])
+        self.env.data.qpos[adr:adr + 3] = [0.95, 0.90, 0.042]
+        mujoco.mj_forward(self.env.model, self.env.data)
+        self.assertTrue(self.env.in_bin(0))
+        for phase in ("navigate", "hover", "descend", "recover"):
+            expert = ExpertSO101(cube=0, phase=phase)
+            action = expert.action(self.env)
+            self.assertTrue(expert.done, phase)
+            self.assertEqual(expert.attempts[0], 0, phase)
+            self.assertTrue(np.isfinite(action).all())
+
     def test_real_cube_free_joint_and_correct_size(self):
         model = self.env.model
         joint = model.joint("cube_0")
