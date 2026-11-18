@@ -39,6 +39,11 @@ CLOSED = -0.05
 # can extend past the chassis at this clearance.
 PICK_CLEARANCE = 0.39
 MOUNT_XYZ = (0.14, 0.0, 0.20)
+# Visual wheel protrudes 0.225m forward, not the 0.17m collision chassis.
+VISUAL_BASE_FRONT = 0.15 + 0.075
+VISUAL_BIN_MARGIN = 0.025
+BIN_LEFT_EDGE = float(BIN_CENTER[0]) - 0.20
+MAX_BIN_APPROACH_BASE_X = BIN_LEFT_EDGE - VISUAL_BASE_FRONT - VISUAL_BIN_MARGIN
 
 
 def upstream_arm_xml() -> Path:
@@ -56,12 +61,14 @@ def upstream_arm_xml() -> Path:
     return path
 
 
-def compose_xml() -> str:
+def compose_xml(cubes: int = CUBE_COUNT) -> str:
     """Nest the unmodified mechanical arm subtree under our mobile base.
 
     The actual mesh files are read from the installed upstream package. We
     never turn the vendor arm into toy capsules or unconstrained XYZ sliders.
     """
+    if not 1 <= cubes <= CUBE_COUNT:
+        raise ValueError(f"cubes must be within 1..{CUBE_COUNT}")
     arm_path = upstream_arm_xml()
     src = ET.parse(arm_path).getroot()
     root = ET.parse(SCENE).getroot()
@@ -127,8 +134,12 @@ def compose_xml() -> str:
     # This workcell uses 24mm blocks (the same as the successful SO-101 VLA
     # experiments), not the original 48mm blocks that could be wider than the
     # actual jaw aperture. This difference is explicit, not a fair A/B test.
+    worldbody = root.find("worldbody")
     for i in range(CUBE_COUNT):
-        cube = root.find(f"./worldbody/body[@name='red_{i}']")
+        cube = worldbody.find(f"body[@name='red_{i}']")
+        if i >= cubes:
+            worldbody.remove(cube)
+            continue
         geom = cube.find(f"./geom[@name='cube_geom_{i}']")
         cube.set("pos", " ".join([*cube.get("pos").split()[:2], "0.0125"]))
         geom.set("size", "0.012 0.012 0.012")
@@ -137,8 +148,8 @@ def compose_xml() -> str:
     return ET.tostring(root, encoding="unicode")
 
 
-def make_model() -> mujoco.MjModel:
-    model = mujoco.MjModel.from_xml_string(compose_xml())
+def make_model(cubes: int = CUBE_COUNT) -> mujoco.MjModel:
+    model = mujoco.MjModel.from_xml_string(compose_xml(cubes=cubes))
     if model.nu != len(JOINTS):
         raise RuntimeError(f"Expected 9 independent drives, got {model.nu}")
     for i, name in enumerate(ACTUATORS):
@@ -158,12 +169,12 @@ class MobileSO101Env:
     def __init__(self, cubes=1):
         if not 1 <= cubes <= CUBE_COUNT:
             raise ValueError("cubes must be between 1 and 5")
-        self.model = make_model()
+        self.model = make_model(cubes=cubes)
         self.data = mujoco.MjData(self.model)
         self.cubes = cubes
         self.qadr = np.array([self.model.jnt_qposadr[self.model.joint(n).id]
                               for n in JOINTS], dtype=int)
-        self.cube_bodies = [self.model.body(f"red_{i}").id for i in range(CUBE_COUNT)]
+        self.cube_bodies = [self.model.body(f"red_{i}").id for i in range(cubes)]
         self.reset()
 
     def reset(self):
@@ -232,9 +243,11 @@ class ExpertSO101:
     _last_ik_error: float | None = None
     _last_ik_time: float = -1.0
     max_ik_error: float = 0.0
+    _all_settled_since: float | None = None
 
     def advance(self, phase, t):
         self.phase, self.entered = phase, t
+        self._all_settled_since = None
         self._phase_arm_q = None
         self._last_ik_time = -1.0
 
@@ -247,6 +260,7 @@ class ExpertSO101:
         self._pick_base_goal = None
         self._hold_arm_q = None
         self._carry_offset = None
+        self._all_settled_since = None
         if self.attempts[self.cube] <= self.max_retries:
             self.advance("recover", float(env.data.time))
         elif self.cube + 1 < env.cubes:
@@ -294,7 +308,15 @@ class ExpertSO101:
         # to press into the bin FLOOR on the five-cube scenario.
         if self.phase in ("navigate", "recover", "hover", "descend") and env.in_bin(self.cube):
             if self.cube == env.cubes - 1:
-                self.done = True
+                missing = next((i for i in range(env.cubes) if not env.in_bin(i)), None)
+                if missing is None:
+                    if self._all_settled_since is None:
+                        self._all_settled_since = t
+                    if t - self._all_settled_since >= 1.25:
+                        self.done = True
+                    return self.safe(env)
+                self.cube = missing
+                self.advance("recover", t)
                 return self.safe(env)
             self.cube += 1
             self.advance("recover", t)
@@ -388,6 +410,9 @@ class ExpertSO101:
         offset = (self._carry_offset if self._carry_offset is not None
                   else np.array([PICK_CLEARANCE, 0]))
         base_goal = BIN_CENTER - offset
+        # The non-colliding visual front wheel would clip the bin at X=0.56.
+        # Keep the full visual 225mm wheel extent 25mm outside the left wall.
+        base_goal[0] = min(float(base_goal[0]), MAX_BIN_APPROACH_BASE_X)
         cmd[3:8] = self._hold_arm_q if self._hold_arm_q is not None else current[3:8]
         cmd[8] = CLOSED
         if self.phase in ("transport", "approach_bin"):
@@ -409,7 +434,16 @@ class ExpertSO101:
                 if not env.in_bin(self.cube) or env.state()[8] < 0.8:
                     return self.recover(env, "missed blue bin or jaw not open after release")
                 if self.cube == env.cubes - 1:
-                    self.done = True
+                    missing = next((i for i in range(env.cubes) if not env.in_bin(i)), None)
+                    if missing is None:
+                        if self._all_settled_since is None:
+                            self._all_settled_since = t
+                        if t - self._all_settled_since >= 1.25:
+                            self.done = True
+                    else:
+                        self._all_settled_since = None
+                        self.cube = missing
+                        self.advance("recover", t)
                 else:
                     self.cube += 1
                     self.advance("recover", t)
