@@ -1,0 +1,39 @@
+name: Paired mobile grasp benchmark
+
+on:
+  pull_request:
+    paths:
+      - "mobile_demo/grasp_benchmark.py"
+      - "mobile_demo/scene.xml"
+      - ".github/workflows/mobile-grasp-benchmark.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  grip-sweep:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install MuJoCo
+        run: python -m pip install -r requirements.txt
+      - name: Compile all six geometry variants
+        run: python -m mobile_demo.grasp_benchmark --check-models
+      - name: Paired actual physics trials (same positions across variants)
+        run: |
+          python -m mobile_demo.grasp_benchmark \
+            --trials 8 --seed 20261118 --max-steps 750 --max-retries 2 \
+            --output mobile_runs/grasp_benchmark.json
+      - name: Archive all episodes, including failed grasps and retry reasons
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paired-grasp-benchmark
+          path: mobile_runs/grasp_benchmark.json
+          if-no-files-found: warn
