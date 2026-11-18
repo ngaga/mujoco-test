@@ -1,0 +1,46 @@
+name: Mobile SO-101 real arm
+
+on:
+  pull_request:
+    paths:
+      - "mobile_demo/so101.py"
+      - "mobile_demo/so101_requirements.txt"
+      - "mobile_demo/SO101.md"
+      - "mobile_demo/scene.xml"
+      - "tests/test_mobile_so101.py"
+      - ".github/workflows/mobile-so101.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-so101-physics:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install pinned physical SO-101 model and MuJoCo
+        run: python -m pip install -r requirements.txt -r mobile_demo/so101_requirements.txt
+      - name: Verify true mesh, joints, jaw, TCP, cameras and physical base
+        run: |
+          python -m compileall -q mobile_demo/so101.py tests/test_mobile_so101.py
+          python -m mobile_demo.so101 --check-model
+          python -m unittest discover -s tests -p 'test_mobile_so101.py' -v
+      - name: Measure TCP reachability across mounting heights and navigation clearance
+        run: python -m mobile_demo.so101_reach_probe --output mobile_runs/so101_reach_scan.json
+      - name: Require real physical release and settled cube in bin
+        run: |
+          python -m mobile_demo.so101 --cubes 1 --max-steps 1000 \
+            --max-retries 2 --require-success --output mobile_runs/mobile_so101.json
+      - name: Archive full measured rollout, including failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-so101-physical-rollout
+          path: mobile_runs/
+          if-no-files-found: warn

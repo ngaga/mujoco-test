@@ -1,0 +1,506 @@
+"""Mobile SO-101: the real sim2cell/Menagerie arm and jaw on our planar base.
+
+Uses the *same pinned SO-ARM100 MuJoCo mechanical model as the independent
+pretrained SmolVLA evaluation*, including actual moving jaw, collision meshes,
+finger pads, joint ranges, TCP site and wrist camera. No surrogate fingers,
+welded objects, object teleportation or fake VLA inference.
+
+The base retains EarlyBots' 3DOF holonomic position-servos and the original
+navigate -> transit waypoint logic. This is NOT wheel-contact-accurate LeKiwi.
+An independent oracle controls the six arm joints via the upstream DLS IK.
+"""
+from __future__ import annotations
+
+import argparse
+import copy
+from dataclasses import dataclass, field
+import json
+from pathlib import Path
+import time
+import xml.etree.ElementTree as ET
+
+import mujoco
+import numpy as np
+
+from .core import BIN_CENTER, CUBE_COUNT, SCENE
+
+BASE_JOINTS = ("base_x", "base_y", "base_yaw")
+ARM_JOINTS = ("Rotation", "Pitch", "Elbow", "Wrist_Pitch", "Wrist_Roll", "Jaw")
+JOINTS = BASE_JOINTS + ARM_JOINTS
+BASE_ACTUATORS = ("drive_x", "drive_y", "drive_yaw")
+ACTUATORS = BASE_ACTUATORS + ARM_JOINTS
+ARM_HOME = np.array([0.0, -1.57, 1.57, 1.57, -1.57, 1.4])
+HOME = np.r_[[-1.21, -0.86, 0.0], ARM_HOME]
+SLEW = np.array([0.15, 0.15, 0.9, 1.4, 1.4, 1.4, 1.4, 1.4, 2.4])
+OPEN = 1.4
+CLOSED = -0.05
+# The existing navigator approaches from the -X direction and leaves 0.39m
+# chassis/bin clearance. The arm mount is moved forward so its ~25cm reach
+# can extend past the chassis at this clearance.
+PICK_CLEARANCE = 0.39
+MOUNT_XYZ = (0.14, 0.0, 0.20)
+
+
+def upstream_arm_xml() -> Path:
+    """Find the exact upstream arm+mesh assets installed from the pinned git SHA."""
+    try:
+        import sim2cell
+    except ImportError as exc:
+        raise RuntimeError(
+            "The physical SO-101 assets are not installed. Install the pinned "
+            "sim2cell dependency in mobile_demo/so101_requirements.txt."
+        ) from exc
+    path = Path(sim2cell.__file__).resolve().parent / "assets/so_arm100/so_arm100.xml"
+    if not path.is_file():
+        raise FileNotFoundError(f"Missing actual SO-101 MJCF: {path}")
+    return path
+
+
+def compose_xml() -> str:
+    """Nest the unmodified mechanical arm subtree under our mobile base.
+
+    The actual mesh files are read from the installed upstream package. We
+    never turn the vendor arm into toy capsules or unconstrained XYZ sliders.
+    """
+    arm_path = upstream_arm_xml()
+    src = ET.parse(arm_path).getroot()
+    root = ET.parse(SCENE).getroot()
+    root.set("model", "EarlyBots mobile platform with real SO-101 manipulator")
+    option = root.find("option")
+    option.set("cone", "elliptic")
+    option.set("impratio", "10")
+
+    base = root.find("./worldbody/body[@name='mobile_base']")
+    assert base is not None, "Original navigator base missing"
+    old_stage = base.find("./body[@name='reach_stage']")
+    if old_stage is None:
+        raise RuntimeError("Expected old Cartesian arm to replace")
+    base.remove(old_stage)
+    mount = ET.SubElement(
+        base, "body", {"name": "so101_mount",
+                       "pos": " ".join(map(str, MOUNT_XYZ)),
+                       "euler": "0 0 1.5707963267948966"})
+    vendor_base = src.find("./worldbody/body[@name='Base']")
+    if vendor_base is None:
+        raise RuntimeError("Upstream SO-101 Base body missing")
+    mount.append(copy.deepcopy(vendor_base))
+
+    original_default = root.find("default")
+    vendor_defaults = src.find("default")
+    if original_default is None or vendor_defaults is None:
+        raise RuntimeError("Missing MJCF defaults")
+    for node in vendor_defaults:
+        original_default.append(copy.deepcopy(node))
+
+    assets = ET.Element("asset")
+    vendor_assets = src.find("asset")
+    if vendor_assets is None:
+        raise RuntimeError("Missing SO-101 assets")
+    for node in vendor_assets:
+        clone = copy.deepcopy(node)
+        if clone.tag == "mesh":
+            file = clone.get("file")
+            if not file:
+                raise RuntimeError("Upstream mesh lacks file")
+            # The original XML uses compiler meshdir="assets/".
+            mesh = (arm_path.parent / "assets" / file).resolve()
+            if not mesh.is_file():
+                raise FileNotFoundError(f"Missing collision/visual mesh: {mesh}")
+            clone.set("file", str(mesh))
+        assets.append(clone)
+    root.insert(list(root).index(root.find("worldbody")), assets)
+
+    actuators = root.find("actuator")
+    assert actuators is not None
+    for node in list(actuators):
+        if node.get("name") not in BASE_ACTUATORS:
+            actuators.remove(node)
+    for node in src.find("actuator"):
+        actuators.append(copy.deepcopy(node))
+
+    exclude_src = src.find("contact")
+    if exclude_src is not None:
+        contact = ET.SubElement(root, "contact")
+        for node in exclude_src:
+            contact.append(copy.deepcopy(node))
+
+    # This workcell uses 24mm blocks (the same as the successful SO-101 VLA
+    # experiments), not the original 48mm blocks that could be wider than the
+    # actual jaw aperture. This difference is explicit, not a fair A/B test.
+    for i in range(CUBE_COUNT):
+        cube = root.find(f"./worldbody/body[@name='red_{i}']")
+        geom = cube.find(f"./geom[@name='cube_geom_{i}']")
+        cube.set("pos", " ".join([*cube.get("pos").split()[:2], "0.0125"]))
+        geom.set("size", "0.012 0.012 0.012")
+        geom.set("mass", "0.02")
+        geom.set("friction", "1.2 0.005 0.0001")
+    return ET.tostring(root, encoding="unicode")
+
+
+def make_model() -> mujoco.MjModel:
+    model = mujoco.MjModel.from_xml_string(compose_xml())
+    if model.nu != len(JOINTS):
+        raise RuntimeError(f"Expected 9 independent drives, got {model.nu}")
+    for i, name in enumerate(ACTUATORS):
+        if model.actuator(name).id != i:
+            raise RuntimeError(f"Actuator order mismatch: {name} -> {model.actuator(name).id}")
+    model.site("tcp")
+    model.camera("front")
+    model.camera("wrist")
+    for name in ("fixed_jaw_pad_1", "moving_jaw_pad_1"):
+        model.geom(name)
+    return model
+
+
+class MobileSO101Env:
+    """The controller receives base and motor state; privileged poses are for oracle only."""
+
+    def __init__(self, cubes=1):
+        if not 1 <= cubes <= CUBE_COUNT:
+            raise ValueError("cubes must be between 1 and 5")
+        self.model = make_model()
+        self.data = mujoco.MjData(self.model)
+        self.cubes = cubes
+        self.qadr = np.array([self.model.jnt_qposadr[self.model.joint(n).id]
+                              for n in JOINTS], dtype=int)
+        self.cube_bodies = [self.model.body(f"red_{i}").id for i in range(CUBE_COUNT)]
+        self.reset()
+
+    def reset(self):
+        mujoco.mj_resetData(self.model, self.data)
+        self.data.qpos[self.qadr] = HOME
+        self.data.ctrl[:] = HOME
+        mujoco.mj_forward(self.model, self.data)
+        return self.state()
+
+    def state(self):
+        return self.data.qpos[self.qadr].copy()
+
+    def cube_position(self, i):
+        return self.data.xpos[self.cube_bodies[i]].copy()
+
+    def tcp_position(self):
+        return self.data.site("tcp").xpos.copy()
+
+    def in_bin(self, i):
+        x, y, z = self.cube_position(i)
+        return bool(abs(x - BIN_CENTER[0]) < 0.17
+                    and abs(y - BIN_CENTER[1]) < 0.17 and 0.025 < z < 0.085)
+
+    def placed(self):
+        return sum(self.in_bin(i) for i in range(self.cubes))
+
+    def step(self, command, frames=None):
+        target = np.asarray(command, dtype=float)
+        if target.shape != (9,) or not np.isfinite(target).all():
+            raise ValueError("Expected 9 finite targets: [x,y,yaw,SO101_6]")
+        if frames is None:
+            frames = round(1 / (15 * self.model.opt.timestep))
+        dt = self.model.opt.timestep
+        for _ in range(frames):
+            self.data.ctrl[:] += np.clip(target - self.data.ctrl, -SLEW * dt, SLEW * dt)
+            mujoco.mj_step(self.model, self.data)
+        return self.state()
+
+    def render(self, camera="front", height=224, width=224):
+        renderer = mujoco.Renderer(self.model, height=height, width=width)
+        try:
+            renderer.update_scene(self.data, camera=camera)
+            return renderer.render().copy()
+        finally:
+            renderer.close()
+
+
+@dataclass
+class ExpertSO101:
+    """Oracle pickup/transport state machine, never presented as trained VLA."""
+
+    cube: int = 0
+    phase: str = "navigate"
+    entered: float = 0.0
+    attempts: list[int] = field(default_factory=lambda: [0] * CUBE_COUNT)
+    retry_events: list[dict] = field(default_factory=list)
+    max_retries: int = 2
+    done: bool = False
+    failure: str | None = None
+    lift_successes: int = 0
+    _phase_arm_q: np.ndarray | None = None
+    _carry_offset: np.ndarray | None = None
+    _pick_xy: np.ndarray | None = None
+    _pick_base_goal: np.ndarray | None = None
+    _hold_arm_q: np.ndarray | None = None
+    _last_ik_error: float | None = None
+    _last_ik_time: float = -1.0
+    max_ik_error: float = 0.0
+
+    def advance(self, phase, t):
+        self.phase, self.entered = phase, t
+        self._phase_arm_q = None
+        self._last_ik_time = -1.0
+
+    def recover(self, env, reason):
+        event = {"cube": self.cube, "time": round(float(env.data.time), 3),
+                 "reason": reason, "attempts": self.attempts[self.cube],
+                 "cube_xyz": env.cube_position(self.cube).round(4).tolist()}
+        self.retry_events.append(event)
+        self._pick_xy = None
+        self._pick_base_goal = None
+        self._hold_arm_q = None
+        self._carry_offset = None
+        if self.attempts[self.cube] <= self.max_retries:
+            self.advance("recover", float(env.data.time))
+        elif self.cube + 1 < env.cubes:
+            self.cube += 1
+            self.advance("recover", float(env.data.time))
+        else:
+            self.failure = "Retry budget exhausted: " + reason
+        return self.safe(env)
+
+    def safe(self, env):
+        cmd = env.state()
+        cmd[3:] = ARM_HOME
+        cmd[2] = 0
+        return cmd
+
+    def ik(self, env, target):
+        if self._phase_arm_q is None:
+            from sim2cell.ik import solve_ik
+            # DLS IK is non-convex: search several mechanically valid seeds,
+            # as confirmed by the reproducible arm reachability scan.
+            best_err, best_q = float("inf"), None
+            for seed in (env.state()[3:8], ARM_HOME[:5],
+                         np.array([0.0, -2.2, 2.2, 1.57, 0.0]),
+                         np.array([0.0, -1.0, 1.0, 1.57, 0.0])):
+                q, err = solve_ik(env.model, env.data, np.asarray(target),
+                                   q_init=seed, max_iters=130, tol=0.0005)
+                if err < best_err:
+                    best_err, best_q = float(err), q.copy()
+            self._phase_arm_q = best_q
+            self._last_ik_error = best_err
+            self.max_ik_error = max(self.max_ik_error, best_err)
+        return self._phase_arm_q
+
+    def action(self, env):
+        if self.done or self.failure:
+            return self.safe(env)
+        t = float(env.data.time)
+        elapsed = t - self.entered
+        # Never claim success while the cube is still held in transport.
+        # The bin occupancy check is meaningful only before pickup or after
+        # the release+settle stage, with an actual low resting cube height.
+        if self.phase in ("navigate", "recover") and env.in_bin(self.cube):
+            if self.cube == env.cubes - 1:
+                self.done = True
+                return self.safe(env)
+            self.cube += 1
+            self.advance("recover", t)
+        if self.phase == "recover":
+            cmd = self.safe(env)
+            if elapsed >= 1.3:
+                self.advance("navigate", t)
+            return cmd
+        cube = env.cube_position(self.cube)
+        current = env.state()
+        cmd = current.copy()
+        cmd[2] = 0.0
+        cmd[3:] = ARM_HOME
+
+        if self.phase == "navigate":
+            # Same approach side and physical X/Y+yaw navigation as core.Expert.
+            cmd[:2] = cube[:2] - np.array([PICK_CLEARANCE, 0])
+            if np.linalg.norm(current[:2] - cmd[:2]) < 0.018 and elapsed > 0.5:
+                # A grasped cube moves with the robot. Never chase its
+                # changing world position while closing or lifting.
+                self._pick_xy = cube[:2].copy()
+                self._pick_base_goal = cmd[:2].copy()
+                self.advance("hover", t)
+            return cmd
+
+        if self.phase in ("hover", "descend", "close", "lift"):
+            # Follow the REAL cube location before closing the jaws; freeze the
+            # target only once fingers are correctly aligned and squeezing.
+            pick_xy = (cube[:2] if self.phase in ("hover", "descend")
+                       else (self._pick_xy if self._pick_xy is not None else cube[:2]))
+            cmd[:2] = (self._pick_base_goal if self._pick_base_goal is not None
+                       else pick_xy - np.array([PICK_CLEARANCE, 0]))
+            height = {"hover": 0.095, "descend": 0.018,
+                      "close": 0.018, "lift": 0.20}[self.phase]
+            if (self.phase in ("hover", "descend")
+                    and (self._last_ik_time < 0 or t - self._last_ik_time >= 0.25)):
+                # A position command cached at phase entry stops working if
+                # the base yields under load or contact nudges the cube.
+                self._phase_arm_q = None
+                self._last_ik_time = t
+            if self.phase == "close":
+                # Keep the descent pose, not a new IK solution that might
+                # disturb a delicately contacted cube before closure.
+                cmd[3:8] = self._phase_arm_q if self._phase_arm_q is not None else self.ik(env, [*pick_xy, height])
+                cmd[8] = CLOSED
+                if elapsed >= 0.9:
+                    self.advance("lift", t)
+            else:
+                cmd[3:8] = self.ik(env, [*pick_xy, height])
+                cmd[8] = OPEN if self.phase in ("hover", "descend") else CLOSED
+                if (self._last_ik_error is not None and self._last_ik_error > 0.045):
+                    # IK misses still count against the per-cube retry budget.
+                    self.attempts[self.cube] += 1
+                    return self.recover(env, f"unreachable TCP ({self._last_ik_error:.3f} m)")
+                if self.phase == "hover" and elapsed > 1.4:
+                    self.advance("descend", t)
+                elif self.phase == "descend" and elapsed > 1.4:
+                    tcp = env.tcp_position()
+                    xy_error = float(np.linalg.norm(tcp[:2] - cube[:2]))
+                    z_error = abs(float(tcp[2]) - height)
+                    if xy_error < 0.009 and z_error < 0.014:
+                        # Close on the last successful approach target: do
+                        # not create a new IK solution during finger contact.
+                        self._pick_xy = cube[:2].copy()
+                        aligned_q = self._phase_arm_q.copy()
+                        self.attempts[self.cube] += 1
+                        self.advance("close", t)
+                        self._phase_arm_q = aligned_q
+                    elif elapsed > 3.5:
+                        self.attempts[self.cube] += 1
+                        return self.recover(env,
+                            f"pregrasp TCP misaligned (xy={xy_error:.3f}m,z={z_error:.3f}m)")
+                elif self.phase == "lift" and elapsed > 1.6:
+                    if cube[2] < 0.065:
+                        return self.recover(env, "cube not retained after lift")
+                    self.lift_successes += 1
+                    # Preserve target joint angles throughout base travel.
+                    # Continuously setting target = measured angles caused
+                    # motor commands to follow gravity instead of resisting it.
+                    self._hold_arm_q = self._phase_arm_q.copy()
+                    self._carry_offset = env.tcp_position()[:2] - current[:2]
+                    self.advance("transport", t)
+            return cmd
+
+        # Reuse original two-stage navigator: travel below the bin in Y,
+        # then approach from that side with chassis clearance.
+        offset = (self._carry_offset if self._carry_offset is not None
+                  else np.array([PICK_CLEARANCE, 0]))
+        base_goal = BIN_CENTER - offset
+        cmd[3:8] = self._hold_arm_q if self._hold_arm_q is not None else current[3:8]
+        cmd[8] = CLOSED
+        if self.phase in ("transport", "approach_bin"):
+            cmd[:2] = base_goal + (
+                np.array([0, -0.49]) if self.phase == "transport" else 0)
+            if cube[2] < 0.065 and elapsed > 0.35:
+                return self.recover(env, "dropped during moving-base transport")
+            if np.linalg.norm(current[:2] - cmd[:2]) < 0.025 and elapsed > 0.4:
+                self.advance("approach_bin" if self.phase == "transport" else "release", t)
+        elif self.phase == "release":
+            cmd[:2] = base_goal
+            cmd[8] = OPEN
+            if elapsed > 0.75:
+                self.advance("settle", t)
+        elif self.phase == "settle":
+            cmd[:2] = base_goal
+            cmd[8] = OPEN
+            if elapsed > 1.0:
+                if not env.in_bin(self.cube) or env.state()[8] < 0.8:
+                    return self.recover(env, "missed blue bin or jaw not open after release")
+                if self.cube == env.cubes - 1:
+                    self.done = True
+                else:
+                    self.cube += 1
+                    self.advance("recover", t)
+        else:
+            raise RuntimeError(f"Unknown phase: {self.phase}")
+        return cmd
+
+
+def execute(cubes=1, max_steps=1000, max_retries=2,
+            viewer=False, viewer_port=8080):
+    env = MobileSO101Env(cubes=cubes)
+    expert = ExpertSO101(max_retries=max_retries)
+    from contextlib import nullcontext
+    if viewer:
+        from mujoco.studio import launch_web, viewer_protocol
+        ctx = launch_web.launch(viewer_protocol.ViewerConfig(
+            title="EarlyBots | SO-101 arm and original mobile navigator",
+            http_port=viewer_port))
+    else:
+        ctx = nullcontext(None)
+    telemetry = []
+    with ctx as display:
+        last = time.perf_counter()
+        for step in range(max_steps):
+            if display and not display.is_running():
+                break
+            cmd = expert.action(env)
+            env.step(cmd)
+            if step % 15 == 0 or expert.done or expert.failure:
+                telemetry.append({
+                    "time": round(float(env.data.time), 3),
+                    "phase": expert.phase,
+                    "base_xy": env.state()[:2].round(4).tolist(),
+                    "cube_xyz": env.cube_position(expert.cube).round(4).tolist(),
+                    "tcp_xyz": env.tcp_position().round(4).tolist(),
+                    "arm_q": env.state()[3:8].round(4).tolist(),
+                    "arm_target": env.data.ctrl[3:8].round(4).tolist(),
+                })
+            if display:
+                display.sync(env.model, env.data)
+                remain = 1 / 15 - (time.perf_counter() - last)
+                if remain > 0:
+                    time.sleep(remain)
+                last = time.perf_counter()
+            if expert.done or expert.failure:
+                break
+    result = {
+        "robot": "real sim2cell SO-ARM100/101 mechanical MJCF on EarlyBots mobile base",
+        "base": "original holonomic 3DOF position-servo proxy, wheels still visual only",
+        "policy": "oracle + DLS IK; NOT pretrained VLA",
+        "cube_side_m": 0.024,
+        "cubes_requested": cubes, "cubes_in_bin": env.placed(),
+        "success": bool(expert.done and env.placed() == cubes),
+        "lift_successes": expert.lift_successes,
+        "attempts_per_cube": expert.attempts[:cubes],
+        "retries": len(expert.retry_events),
+        "retry_events": expert.retry_events,
+        "max_ik_error_m": round(expert.max_ik_error, 5),
+        "failure": expert.failure,
+        "final_phase": expert.phase,
+        "steps": step + 1,
+        "simulation_seconds": round(float(env.data.time), 3),
+        "tcp_xyz": env.tcp_position().round(4).tolist(),
+        "cube_xyz": [env.cube_position(i).round(4).tolist() for i in range(cubes)],
+        "base_xy": env.state()[:2].round(4).tolist(),
+        "telemetry_1hz": telemetry,
+    }
+    return result
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check-model", action="store_true")
+    parser.add_argument("--cubes", type=int, default=1)
+    parser.add_argument("--max-steps", type=int, default=1000)
+    parser.add_argument("--max-retries", type=int, default=2)
+    parser.add_argument("--viewer", action="store_true")
+    parser.add_argument("--viewer-port", type=int, default=8080)
+    parser.add_argument("--require-success", action="store_true",
+                        help="Explicit opt-in: fail if full physical delivery fails")
+    parser.add_argument("--output", type=Path, default=Path("mobile_runs/mobile_so101.json"))
+    args = parser.parse_args(argv)
+    if args.check_model:
+        model = make_model()
+        print(json.dumps({"robot": "real SO-101 MuJoCo model",
+                          "actuators": model.nu,
+                          "meshes": model.nmesh,
+                          "geoms": model.ngeom,
+                          "tcp": "tcp",
+                          "cameras": ["front", "wrist"]}, indent=2))
+        return
+    report = execute(args.cubes, args.max_steps, args.max_retries,
+                     args.viewer, args.viewer_port)
+    args.output.parent.mkdir(exist_ok=True, parents=True)
+    args.output.write_text(json.dumps(report, indent=2) + "\n")
+    print(json.dumps(report, indent=2), flush=True)
+    if args.require_success and not report["success"]:
+        raise SystemExit("SO-101 physical delivery failed: see report")
+
+
+if __name__ == "__main__":
+    main()

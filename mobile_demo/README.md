@@ -1,5 +1,8 @@
 # EarlyBots mobile cube collection (MuJoCo research prototype)
 
+**New alternative: [SO-101 real articulated arm + moving gripper](SO101.md).** The original 2-DOF Cartesian arm remains the default; the SO-101 version uses 9 joint commands (3 base + 6 actual SO-101), pinned real mechanical assets, live TCP IK and a strict contact-physics delivery test. Run `python -m mobile_demo.so101 --check-model` after installing the extra requirements, then `python -m mobile_demo.so101 --cubes 1 --require-success`. This is a physical arm on a *still simplified* holonomic base, not full LeKiwi wheel physics and not mobile VLA inference.
+
+
 **Current status: physical scene + oracle teacher + prospective 7D VLA adapter.**
 The `expert` is a privileged, deterministic controller. Its successful rollouts
 are *not* VLA successes, autonomous vision, or proof of real-world robot safety.
