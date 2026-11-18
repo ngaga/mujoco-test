@@ -36,6 +36,22 @@ jobs:
         run: |
           python -m mobile_demo.bin_collision_probe --cubes 5 \
             --max-steps 5000 --output mobile_runs/bin_clearance_five.json
+      - name: Reject any robot intersection with the blue bin or missed placement
+        run: |
+          python - <<'PY'
+          import json
+          for n in ("one", "five"):
+              with open(f"mobile_runs/bin_clearance_{n}.json") as f:
+                  r = json.load(f)
+              assert r["success"], f"{n} cubes: task failed: {r['failure']}"
+              assert r["placed"] == r["cubes"], f"{n} cubes: incomplete placement"
+              assert r["robot_bin_contact_samples"] == 0, (
+                  f"{n} cubes: robot touched blue bin: {r['robot_bin_contact_pairs']}")
+              assert r["max_robot_bin_penetration_mm"] == 0, (
+                  f"{n} cubes: overlap detected: {r['max_robot_bin_penetration_mm']} mm")
+              print(f"PASS {n}: placed={r['placed']}/{r['cubes']}, "
+                    f"robot-bin contacts=0, retries={r['retries']}")
+          PY
       - name: Archive complete physics reports
         if: always()
         uses: actions/upload-artifact@v4
