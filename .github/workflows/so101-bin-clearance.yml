@@ -1,0 +1,45 @@
+name: SO-101 bin clearance and 5-cube trials
+
+on:
+  pull_request:
+    paths:
+      - "mobile_demo/bin_collision_probe.py"
+      - "mobile_demo/so101.py"
+      - "tests/test_mobile_so101.py"
+      - ".github/workflows/so101-bin-clearance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bin-clearance-physics:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install pinned SO-101 real physics
+        run: python -m pip install -r requirements.txt -r mobile_demo/so101_requirements.txt
+      - name: Check scene and arm
+        run: |
+          python -m compileall -q mobile_demo/bin_collision_probe.py mobile_demo/so101.py
+          python -m mobile_demo.so101 --check-model
+      - name: Capture all robot-versus-bin contacts (one cube)
+        run: |
+          python -m mobile_demo.bin_collision_probe --cubes 1 \
+            --max-steps 1000 --output mobile_runs/bin_clearance_one.json
+      - name: Capture all robot-versus-bin contacts (five cubes)
+        run: |
+          python -m mobile_demo.bin_collision_probe --cubes 5 \
+            --max-steps 5000 --output mobile_runs/bin_clearance_five.json
+      - name: Archive complete physics reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: so101-bin-clearance
+          path: mobile_runs/
+          if-no-files-found: warn
