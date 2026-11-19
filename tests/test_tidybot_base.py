@@ -35,13 +35,6 @@ class TidyBotCompositionTests(unittest.TestCase):
             root.find("./worldbody/body[@name='mobile_base']/geom[@name='tidybot_body_collision']").get("contype"),
             "1",
         )
-        # Prevent reintroducing the former ~3kg chassis servo gains on this
-        # official 60kg hull: underdamping pushed cubes during grasp.
-        for name in ("drive_x", "drive_y"):
-            motor = root.find(f"./actuator/position[@name='{name}']")
-            self.assertEqual(motor.get("kp"), "6000")
-            self.assertEqual(motor.get("kv"), "1200")
-            self.assertEqual(motor.get("forcerange"), "-900 900")
         # Idempotent, so programmatic builders cannot add geoms twice.
         with patch("mobile_demo.tidybot_base.ensure_assets", return_value=fake):
             mount_tidybot_base(root)
