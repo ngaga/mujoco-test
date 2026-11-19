@@ -47,6 +47,19 @@ class MobileSO101Tests(unittest.TestCase):
         with self.assertRaises(KeyError):
             model.geom("wheel_a")
 
+    def test_so101_forward_mount_visuals_preserve_actuated_arm(self):
+        model = self.env.model
+        for name in ("so101_mount_brace_left", "so101_mount_brace_right",
+                     "so101_mount_plate"):
+            geom = model.geom(name)
+            self.assertEqual(int(geom.contype[0]), 0)
+            self.assertEqual(int(geom.conaffinity[0]), 0)
+            self.assertAlmostEqual(float(geom.mass[0]), 0.0)
+        # Existing SO101 base and TCP are the same real mechanical arm.
+        self.assertEqual(model.nu, 9)
+        model.body("so101_mount")
+        model.site("tcp")
+
     def test_original_planar_base_physically_moves(self):
         initial = self.env.state()
         target = initial.copy()
