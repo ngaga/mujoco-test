@@ -38,9 +38,9 @@ jobs:
         run: python -m mobile_demo.tidybot_full --fetch
       - name: Compile real robot and hotel bathroom with 3 cubes
         run: python -m mobile_demo.hotel_vla --check-model
-      - name: Short MuJoCo contact-physics/IK smoke trial (NOT a VLA success claim)
+      - name: Full 3-cube MuJoCo scripted physical rollout (NOT VLA inference)
         run: |
-          python -m mobile_demo.hotel_vla --policy scripted --max-steps 180 \
+          python -m mobile_demo.hotel_vla --policy scripted --max-steps 2200 \
             --output mobile_runs/hotel_physical_smoke.json
       - name: Archive report even if physical trial fails
         if: always()
