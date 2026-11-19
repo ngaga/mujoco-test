@@ -232,6 +232,12 @@ class HotelEnv:
     def count_placed(self):
         return sum(self.placed(i) for i in range(CUBES))
 
+    def cubes_settled(self):
+        """Physics-based final check; all objects have low linear speed in the bin."""
+        return (self.count_placed() == CUBES and
+                all(np.linalg.norm(self.data.cvel[body_id, 3:]) < 0.10
+                    for body_id in self.cube_ids))
+
     def observation(self, renderers):
         images = {}
         for camera, dest in CAMERAS.items():
@@ -258,10 +264,6 @@ class HotelEnv:
 class CompatibleSmolVLA:
     """No privileged poses, no silent retargeting from SO-101 or other robots."""
     def __init__(self, checkpoint: str, device: str):
-        from lerobot.policies import make_pre_post_processors
-        from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
-        import torch
-        self.torch = torch
         path = Path(checkpoint).expanduser().resolve()
         contract_file = path / "hotel_action_contract.json"
         if not contract_file.is_file():
@@ -276,6 +278,10 @@ class CompatibleSmolVLA:
                     "action_convention": "absolute_native_targets_si_gripper_0_255"}
         if any(contract.get(key) != val for key, val in expected.items()):
             raise ValueError("Checkpoint robot/camera/action convention differs from hotel TidyBot")
+        from lerobot.policies import make_pre_post_processors
+        from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
+        import torch
+        self.torch = torch
         self.policy = SmolVLAPolicy.from_pretrained(str(path)).to(device).eval()
         def last(features, key):
             obj = features.get(key)
@@ -428,14 +434,22 @@ class ScriptedIK:
                 if next_phase == "done":
                     # Assess physical result after release, not model intention.
                     if elapsed > 1.25:
-                        if env.placed(self.cube):
-                            return self.next_cube(cmd)
-                        if self.attempts[self.cube] < self.max_retries:
-                            self.attempts[self.cube] += 1
-                            self.retries += 1
-                            self.advance("navigate_pick")
+                        stable = (env.placed(self.cube) and
+                                  np.linalg.norm(env.data.cvel[env.cube_ids[self.cube], 3:]) < .10)
+                        if stable:
+                            if self.settling_since is None:
+                                self.settling_since = now
+                            elif now - self.settling_since > .65:
+                                return self.next_cube(cmd)
                         else:
-                            self.failure = f"Cube {self.cube} was not physically inside bin"
+                            self.settling_since = None
+                            if elapsed > 3.0:
+                                if self.attempts[self.cube] < self.max_retries:
+                                    self.attempts[self.cube] += 1
+                                    self.retries += 1
+                                    self.advance("navigate_pick")
+                                else:
+                                    self.failure = f"Cube {self.cube} did not settle inside bin"
                 else:
                     self.advance(next_phase)
             elif self.phase == "lower" and distance < .10 and elapsed > .7:
@@ -470,6 +484,8 @@ def run(args):
                   for camera in CAMERAS} if model_policy else {})
     frames = 0
     error = None
+    vla_stable_since = None
+    vla_done = False
     ctx = nullcontext(None)
     if args.viewer:
         from mujoco.studio import launch_web, viewer_protocol
@@ -493,7 +509,18 @@ def run(args):
                     if delay > 0:
                         time.sleep(delay)
                     tick = time.perf_counter()
-                if (script and (script.done or script.failure)) or env.count_placed() == CUBES:
+                if model_policy:
+                    stable = (env.cubes_settled() and
+                              env.data.ctrl[env.action_ids[-1]] < 30.0)
+                    if stable:
+                        if vla_stable_since is None:
+                            vla_stable_since = float(env.data.time)
+                        if env.data.time - vla_stable_since >= 1.0:
+                            vla_done = True
+                            break
+                    else:
+                        vla_stable_since = None
+                if script and (script.done or script.failure):
                     break
             if viewer and args.hold_viewer:
                 try:
@@ -510,7 +537,8 @@ def run(args):
               "policy": args.policy, "vla_inference_executed": model_policy is not None,
               "privileged_object_poses_used_by_policy": script is not None,
               "cubes": CUBES, "delivered": env.count_placed(),
-              "success": bool(env.count_placed() == CUBES),
+              "success": bool(env.cubes_settled() and
+                              (script.done if script else vla_done)),
               "failure": (script.failure if script else error),
               "simulation_seconds": round(float(env.data.time), 2),
               "steps": frames, "final_cube_xyz": [env.cube_pos(i).round(4).tolist()
