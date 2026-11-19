@@ -102,6 +102,30 @@ class SO101RGBLocalizer:
         for renderer in self.renderers.values():
             renderer.close()
 
+    def discover(self, env, cameras=("front",)):
+        """Return all world-plane red detections, with no expected cube XY.
+
+        Used during long-range RGB navigation. Candidate selection is entirely
+        handled by the navigator, which has no MuJoCo object position API.
+        """
+        self.frames += 1
+        found = []
+        for camera in cameras:
+            renderer = self.renderers[camera]
+            renderer.update_scene(env.data, camera=camera)
+            rgb = renderer.render().copy()
+            self.images[camera] = rgb
+            for u, v, count in red_components(rgb):
+                xy = calibrated_ground_intersection(
+                    env.model, env.data, camera, u, v, rgb.shape[:2],
+                    target_height=self.ground_z)
+                if xy is not None:
+                    found.append(np.asarray(xy, dtype=float))
+                    self.camera_detections[camera] += 1
+        if found:
+            self.frames_with_target += 1
+        return found
+
     def observe(self, env, expected_xy, max_distance=0.18):
         """Use base-relative expected grasp workspace ONLY to select the blob.
 
