@@ -257,6 +257,8 @@ class ExpertSO101:
     # Optional real RGB localizer. Navigation, post-grasp checks and bin
     # success still use simulator truth in this staged/hybrid experiment.
     vision: object | None = None
+    # Optional long-range RGB target finder; its navigation step never reads cube truth.
+    navigator: object | None = None
     _vision_xy: np.ndarray | None = None
     _last_vision_time: float = -1.0
 
@@ -278,7 +280,15 @@ class ExpertSO101:
         self._all_settled_since = None
         self._vision_xy = None
         self._last_vision_time = -1.0
-        if self.attempts[self.cube] <= self.max_retries:
+        if self.navigator is not None:
+            # Bad grasp: search for the displaced object again using pixels.
+            # An exhausted target is ignored so the next patrol can progress.
+            if self.attempts[self.cube] > self.max_retries:
+                self.navigator.ignore_target()
+            else:
+                self.navigator.forget_target()
+            self.advance("recover", float(env.data.time))
+        elif self.attempts[self.cube] <= self.max_retries:
             self.advance("recover", float(env.data.time))
         elif self.cube + 1 < env.cubes:
             self.cube += 1
@@ -316,6 +326,33 @@ class ExpertSO101:
             return self.safe(env)
         t = float(env.data.time)
         elapsed = t - self.entered
+        # The long-range navigator uses only rendered camera detections,
+        # base state and a fixed room patrol. Do not read any cube position
+        # before it has selected a visual target and reached its approach pose.
+        if self.navigator is not None and self.phase == "navigate":
+            cmd = self.safe(env)
+            goal, visual_target = self.navigator.step(env, self.vision, t)
+            cmd[:2] = goal
+            if self.navigator.failure:
+                self.failure = self.navigator.failure
+                return self.safe(env)
+            if visual_target is not None:
+                # Oracle object-ID association is retained ONLY for the
+                # subsequent scripted grasp-success/recovery supervisor and
+                # evaluation. It never sets a navigation target or base goal.
+                remaining = [i for i in range(env.cubes) if not env.in_bin(i)]
+                if not remaining:
+                    self.failure = "No undelivered objects to associate with RGB target"
+                    return self.safe(env)
+                self.cube = min(remaining, key=lambda i:
+                                np.linalg.norm(env.cube_position(i)[:2] - visual_target))
+                self._pick_xy = visual_target.copy()
+                self._pick_base_goal = np.asarray(goal, dtype=float).copy()
+                self._vision_xy = visual_target.copy()
+                self._last_vision_time = -1.0
+                self.advance("hover", t)
+            return cmd
+
         # Never claim success while the cube is still held in transport.
         # The bin occupancy check is meaningful only before pickup or after
         # the release+settle stage, with an actual low resting cube height.
@@ -323,7 +360,21 @@ class ExpertSO101:
         # including when this happens mid-approach/descend during a retry.
         # Regrasping an already delivered cube caused the real jaw geometry
         # to press into the bin FLOOR on the five-cube scenario.
-        if self.phase in ("navigate", "recover", "hover", "descend") and env.in_bin(self.cube):
+        if (self.phase in ("navigate", "recover", "hover", "descend")
+                and (self.navigator is None or self.phase in ("hover", "descend"))
+                and env.in_bin(self.cube)):
+            if self.navigator is not None:
+                # This cube reached the bin without a new pickup (e.g. a
+                # previous loose release). Move on to vision-driven search.
+                if env.placed() == env.cubes:
+                    if self._all_settled_since is None:
+                        self._all_settled_since = t
+                    if t - self._all_settled_since >= 1.25:
+                        self.done = True
+                else:
+                    self.navigator.forget_target()
+                    self.advance("recover", t)
+                return self.safe(env)
             if self.cube == env.cubes - 1:
                 missing = next((i for i in range(env.cubes)
                                 if not env.in_bin(i)), None)
@@ -495,7 +546,16 @@ class ExpertSO101:
             if elapsed > 1.0:
                 if not env.in_bin(self.cube) or env.state()[8] < 0.8:
                     return self.recover(env, "missed blue bin or jaw not open after release")
-                if self.cube == env.cubes - 1:
+                if self.navigator is not None:
+                    if env.placed() == env.cubes:
+                        if self._all_settled_since is None:
+                            self._all_settled_since = t
+                        if t - self._all_settled_since >= 1.25:
+                            self.done = True
+                    else:
+                        self.navigator.forget_target()
+                        self.advance("recover", t)
+                elif self.cube == env.cubes - 1:
                     missing = next((i for i in range(env.cubes)
                                     if not env.in_bin(i)), None)
                     if missing is None:
@@ -520,13 +580,16 @@ class ExpertSO101:
 
 def execute(cubes=1, max_steps=1000, max_retries=2,
             viewer=False, viewer_port=8080, perception="oracle"):
-    if perception not in ("oracle", "rgb"):
-        raise ValueError("perception must be 'oracle' or 'rgb'")
+    if perception not in ("oracle", "rgb", "rgb-nav"):
+        raise ValueError("perception must be 'oracle', 'rgb' or 'rgb-nav'")
     env = MobileSO101Env(cubes=cubes)
     expert = ExpertSO101(max_retries=max_retries)
-    if perception == "rgb":
+    if perception in ("rgb", "rgb-nav"):
         from .vision_rgb import SO101RGBLocalizer
         expert.vision = SO101RGBLocalizer(env.model)
+    if perception == "rgb-nav":
+        from .rgb_navigation import RGBObjectNavigator
+        expert.navigator = RGBObjectNavigator()
     from contextlib import nullcontext
     if viewer:
         from mujoco.studio import launch_web, viewer_protocol
@@ -569,10 +632,16 @@ def execute(cubes=1, max_steps=1000, max_retries=2,
     result = {
         "robot": "real sim2cell SO-ARM100/101 mechanical MJCF on EarlyBots mobile base",
         "base": "original holonomic 3DOF position-servo proxy, wheels still visual only",
-        "policy": ("oracle navigation + RGB front/wrist local grasp + DLS IK"
-                   if perception == "rgb" else "oracle navigation + oracle grasp + DLS IK"),
+        "policy": (
+            "RGB front navigation + RGB front/wrist local grasp + oracle task supervisor + DLS IK"
+            if perception == "rgb-nav" else
+            "oracle navigation + RGB front/wrist local grasp + DLS IK"
+            if perception == "rgb" else
+            "oracle navigation + oracle grasp + DLS IK"),
         "perception": perception,
         "rgb_perception": expert.vision.report() if expert.vision is not None else None,
+        "rgb_navigation": (expert.navigator.report()
+                           if expert.navigator is not None else None),
         "cube_side_m": 0.024,
         "cubes_requested": cubes, "cubes_in_bin": env.placed(),
         "success": bool(expert.done and env.placed() == cubes),
@@ -598,8 +667,8 @@ def main(argv=None):
     parser.add_argument("--check-model", action="store_true")
     parser.add_argument("--cubes", type=int, default=1)
     parser.add_argument("--max-steps", type=int, default=1000)
-    parser.add_argument("--perception", choices=("oracle", "rgb"), default="oracle",
-                        help="rgb uses rendered front/wrist pixels for local cube XY; long-range navigation remains oracle")
+    parser.add_argument("--perception", choices=("oracle", "rgb", "rgb-nav"), default="oracle",
+                        help="rgb uses local camera targeting; rgb-nav also finds cubes and drives to them using front RGB + base odometry")
     parser.add_argument("--max-retries", type=int, default=2)
     parser.add_argument("--viewer", action="store_true")
     parser.add_argument("--viewer-port", type=int, default=8080)
