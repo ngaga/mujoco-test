@@ -23,7 +23,8 @@ PATROL = (
     (-1.22,  0.34), (-0.75,  0.34), (-0.22,  0.34),
     (-1.22,  0.95), (-0.75,  0.95), (-0.22,  0.95),
 )
-PICK_CLEARANCE = 0.39
+DEFAULT_PICK_CLEARANCE = 0.39  # Legacy navigator default; actual base passes its calibrated standoff.
+PICK_CLEARANCE = DEFAULT_PICK_CLEARANCE  # Backward-compatible reference for standalone tests.
 MAX_SWEEPS = 3
 
 
@@ -31,6 +32,7 @@ MAX_SWEEPS = 3
 class RGBObjectNavigator:
     """Visual target selection + simple map-aware sweep, with no cube-pose API."""
 
+    pick_clearance: float = DEFAULT_PICK_CLEARANCE
     target_xy: np.ndarray | None = None
     last_observation_time: float = -1.0
     scans: int = 0
@@ -101,7 +103,7 @@ class RGBObjectNavigator:
                         self.target_xy = 0.75 * self.target_xy + 0.25 * best
 
         if self.target_xy is not None:
-            goal = self.target_xy - np.array([PICK_CLEARANCE, 0.0])
+            goal = self.target_xy - np.array([self.pick_clearance, 0.0])
             if np.linalg.norm(base_xy - goal) <= 0.018:
                 self.approaches += 1
                 return goal, self.target_xy.copy()
@@ -123,6 +125,7 @@ class RGBObjectNavigator:
         return {
             "navigation_source": "front RGB pixels + base joint odometry + fixed room patrol",
             "uses_cube_ground_truth_for_navigation": False,
+            "pick_clearance_m": self.pick_clearance,
             "scans": self.scans,
             "frames_with_candidates": self.frames_with_candidates,
             "discoveries": self.discoveries,
