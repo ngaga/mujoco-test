@@ -334,6 +334,7 @@ class ScriptedIK:
         self.home_arm = env.model.key("home").ctrl[3:10].copy()
         self.pose_target = None
         self.settling_since = None
+        self._last_clamp_phase = None
 
     def advance(self, phase):
         self.phase = phase
@@ -468,7 +469,18 @@ class ScriptedIK:
                 self.advance("retract")
         if elapsed > 22.0:
             self.failure = f"Timed out in phase {self.phase} on cube {self.cube}"
-        return validate_action(cmd)
+        # Native Gen3 actuators may start at exact +/-pi and occasionally
+        # slightly exceed our conservative *software* range during movement.
+        # Clamp ONLY the scripted IK teacher. Model/VLA outputs are still
+        # strictly rejected by validate_action, never silently retargeted.
+        bounded = np.clip(cmd, ACTION_LOW, ACTION_HIGH)
+        if np.any(np.abs(bounded - cmd) > 1e-6) and self._last_clamp_phase != self.phase:
+            limited = [(name, round(float(a), 4), round(float(b), 4))
+                       for name, a, b in zip(ACTUATORS, cmd, bounded)
+                       if abs(a - b) > 1e-6]
+            print(f"Scripted IK command clamped in {self.phase}: {limited}", flush=True)
+            self._last_clamp_phase = self.phase
+        return validate_action(bounded)
 
     def next_cube(self, cmd):
         self.cube += 1
@@ -504,8 +516,13 @@ def run(args):
                 if viewer and not viewer.is_running():
                     error = "Viewer closed"
                     break
-                action = (script.command() if script else model_policy.action(env, renderers))
-                env.step(action)
+                try:
+                    action = (script.command() if script else model_policy.action(env, renderers))
+                    env.step(action)
+                except (ValueError, RuntimeError, np.linalg.LinAlgError) as exc:
+                    error = f"Controller error: {type(exc).__name__}: {exc}"
+                    print(error, flush=True)
+                    break
                 if frames % 15 == 0 or env.count_placed() == CUBES:
                     print(f"t={env.data.time:.1f}s cubes={env.count_placed()}/3 "
                           f"phase={script.phase if script else 'VLA'}", flush=True)
@@ -545,7 +562,7 @@ def run(args):
               "cubes": CUBES, "delivered": env.count_placed(),
               "success": bool(env.cubes_settled() and
                               (script.done if script else vla_done)),
-              "failure": (script.failure if script else error),
+              "failure": (script.failure or error if script else error),
               "simulation_seconds": round(float(env.data.time), 2),
               "steps": frames, "final_cube_xyz": [env.cube_pos(i).round(4).tolist()
                                                      for i in range(CUBES)],
