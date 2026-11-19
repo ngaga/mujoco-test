@@ -418,7 +418,8 @@ class ScriptedIK:
             if self.phase in ("hover", "lower", "close", "lift"):
                 goal = np.array([cube[0], cube[1],
                                  cube[2] + (.14 if self.phase == "hover" else
-                                            .026 if self.phase in ("lower", "close") else .20)])
+                                            .026 if self.phase in ("lower", "close") else
+                                            max(.20, COUNTER_Z + .17 - cube[2]))])
             else:
                 goal = np.array([BIN_XY[0], BIN_XY[1],
                                  BIN_BOTTOM_Z + (.23 if self.phase in ("preplace", "retract")
