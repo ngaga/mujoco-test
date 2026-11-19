@@ -1,17 +1,13 @@
 """Physical MuJoCo environment, 7-actuator command contract, and oracle expert.
 
 The base is holonomic-position-actuated and the arm Cartesian (2-DOF): this is
-Stanford TidyBot Menagerie CAD base with a planar X/Y/yaw position-servo proxy,
-not the physical caster system. The simple arm is not an SO-101.
+LeKiwi-*inspired*, NOT the original LeKiwi/ SO-101 kinematics or wheel physics.
 The expert uses privileged cube positions. No VLA is involved in expert rollouts.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-import xml.etree.ElementTree as ET
-
-from .tidybot_base import mount_tidybot_base
 
 import mujoco
 import numpy as np
@@ -50,8 +46,7 @@ class MobileEnv:
     def __init__(self, cubes=CUBE_COUNT):
         if not 1 <= cubes <= CUBE_COUNT:
             raise ValueError("cubes must be in [1,5]")
-        root = mount_tidybot_base(ET.parse(SCENE).getroot())
-        self.model = mujoco.MjModel.from_xml_string(ET.tostring(root, encoding="unicode"))
+        self.model = mujoco.MjModel.from_xml_path(str(SCENE))
         self.data = mujoco.MjData(self.model)
         self.cubes = cubes
         self.qpos_addr = [int(self.model.jnt_qposadr[self.model.joint(j).id]) for j in JOINTS]
