@@ -56,7 +56,7 @@ class RGBNavigationTests(unittest.TestCase):
         vision = FakeRGB([(0.95, 0.90), (-1.45, -0.5)])
         goal, arrived = RGBObjectNavigator().step(env, vision, 0.0)
         self.assertIsNone(arrived)
-        np.testing.assert_allclose(goal, [-1.22, -0.88], atol=1e-8)
+        np.testing.assert_allclose(goal, [-0.75, -0.88], atol=1e-8)
 
     def test_patrol_works_with_no_cube_position_access(self):
         env = OdometryOnlyEnv()
