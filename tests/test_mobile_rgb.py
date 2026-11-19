@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import numpy as np
 
 from mobile_demo.vision_rgb import red_components, calibrated_ground_intersection
+from mobile_demo.so101 import ARM_HOME, ExpertSO101
 
 
 class RGBLocalizationUnitTests(unittest.TestCase):
@@ -49,6 +50,50 @@ class RGBLocalizationUnitTests(unittest.TestCase):
                                cam_xmat=np.array([r]))
         self.assertIsNone(calibrated_ground_intersection(
             Model(), data, "camera", 49.5, 49.5, (100, 100), 0.0))
+
+
+    def test_rgb_pregrasp_close_gate_uses_pixels_not_oracle_cube_xy(self):
+        # The image-derived pick XY and hidden cube XY intentionally disagree.
+        # A correct non-oracle gate trusts TCP vs the image command, even
+        # when that can mean an actual missed grasp in imperfect perception.
+        class FakeEnv:
+            data = SimpleNamespace(time=2.0)
+
+            def __init__(self, tcp_xy):
+                self.tcp_xy = np.array(tcp_xy, dtype=float)
+
+            def in_bin(self, index):
+                return False
+
+            def cube_position(self, index):
+                return np.array([0.65, 0.0, 0.012])  # evaluation truth only
+
+            def state(self):
+                return np.r_[[0.0, 0.0, 0.0], ARM_HOME].copy()
+
+            def tcp_position(self):
+                return np.r_[self.tcp_xy, 0.018]
+
+        def prepared_expert():
+            return ExpertSO101(
+                phase="descend", entered=0.0,
+                _pick_base_goal=np.array([0.0, 0.0]),
+                _phase_arm_q=ARM_HOME[:5].copy(),
+                _vision_xy=np.array([0.39, 0.0]),
+                _last_vision_time=2.0, _last_ik_time=2.0,
+                _last_ik_error=0.0,
+                vision=SimpleNamespace(error_m=[]),
+            )
+
+        aligned_to_pixels = prepared_expert()
+        aligned_to_pixels.action(FakeEnv([0.39, 0.0]))
+        self.assertEqual(aligned_to_pixels.phase, "close")
+        np.testing.assert_allclose(aligned_to_pixels._pick_xy, [0.39, 0.0])
+
+        aligned_to_oracle_only = prepared_expert()
+        aligned_to_oracle_only.action(FakeEnv([0.65, 0.0]))
+        self.assertEqual(aligned_to_oracle_only.phase, "descend")
+        self.assertEqual(aligned_to_oracle_only.attempts[0], 0)
 
 
 if __name__ == "__main__":
