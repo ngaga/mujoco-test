@@ -134,7 +134,6 @@ def compose_xml(cubes: int = CUBE_COUNT) -> str:
     if vendor_base is None:
         raise RuntimeError("Upstream SO-101 Base body missing")
     mount.append(copy.deepcopy(vendor_base))
-    add_visual_mount_bracket(base)
 
     original_default = root.find("default")
     vendor_defaults = src.find("default")
@@ -191,7 +190,10 @@ def compose_xml(cubes: int = CUBE_COUNT) -> str:
         geom.set("size", "0.012 0.012 0.012")
         geom.set("mass", "0.02")
         geom.set("friction", "1.2 0.005 0.0001")
+    # The official-hull importer replaces all direct base geoms. Add our
+    # cosmetic support AFTER importing the TidyBot CAD, or it gets deleted.
     mount_tidybot_base(root)
+    add_visual_mount_bracket(base)
     return ET.tostring(root, encoding="unicode")
 
 
