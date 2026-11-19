@@ -436,7 +436,10 @@ class ExpertSO101:
                     self.advance("descend", t)
                 elif self.phase == "descend" and elapsed > 1.4:
                     tcp = env.tcp_position()
-                    xy_error = float(np.linalg.norm(tcp[:2] - cube[:2]))
+                    # In RGB mode the close decision must use the visual target,
+                    # never the cube's privileged MuJoCo pose. In oracle mode
+                    # pick_xy is that same oracle pose, preserving the baseline.
+                    xy_error = float(np.linalg.norm(tcp[:2] - pick_xy))
                     z_error = abs(float(tcp[2]) - height)
                     if xy_error < 0.009 and z_error < 0.014:
                         # Close on the last successful approach target: do
