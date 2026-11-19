@@ -1,0 +1,69 @@
+name: SO101 RGB-only object navigation
+
+on:
+  pull_request:
+    paths:
+      - "mobile_demo/rgb_navigation.py"
+      - "mobile_demo/so101.py"
+      - "mobile_demo/vision_rgb.py"
+      - "tests/test_rgb_navigation.py"
+      - ".github/workflows/so101-rgb-nav.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rgb-object-navigation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      MUJOCO_GL: osmesa
+      PYOPENGL_PLATFORM: osmesa
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install headless rendering + pinned real SO101 meshes
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libosmesa6 libosmesa6-dev libgl1-mesa-dri
+          python -m pip install -r requirements.txt -r mobile_demo/so101_requirements.txt
+      - name: Enforce zero oracle reads during RGB navigation and run camera tests
+        run: |
+          python -m unittest discover -s tests -p 'test_rgb_navigation.py' -v
+          python -m unittest discover -s tests -p 'test_mobile_rgb.py' -v
+      - name: Strict RGB-navigation one-cube physical pickup and delivery
+        run: |
+          python -m mobile_demo.so101 --cubes 1 --perception rgb-nav \
+            --max-steps 2000 --require-success \
+            --output mobile_runs/rgb_nav_one.json
+      - name: Multi-cube RGB-navigation experimental rollout
+        run: |
+          python -m mobile_demo.so101 --cubes 3 --perception rgb-nav \
+            --max-steps 5500 --output mobile_runs/rgb_nav_three.json
+      - name: Print navigation measurements without overstating generalization
+        run: |
+          python - <<'PY'
+          import json
+          for name in ('one', 'three'):
+              with open(f'mobile_runs/rgb_nav_{name}.json') as file:
+                  result=json.load(file)
+              nav=result['rgb_navigation']
+              assert nav and nav['scans'] > 0 and nav['discoveries'] > 0, result
+              print(name, 'success=', result['success'],
+                    'delivered=', result['cubes_in_bin'], '/', result['cubes_requested'],
+                    'scans=', nav['scans'], 'discoveries=', nav['discoveries'],
+                    'patrol_visits=', nav['patrol_visits'],
+                    'retries=', result['retries'],
+                    'failure=', result['failure'])
+          PY
+      - name: Store physical reports even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: so101-rgb-navigation-rollouts
+          path: mobile_runs/rgb_nav_*.json
+          if-no-files-found: warn
