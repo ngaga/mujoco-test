@@ -667,6 +667,9 @@ def execute(cubes=1, max_steps=1000, max_retries=2,
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--robot", choices=("tidybot", "tidybot-so101"),
+                        default="tidybot-so101",
+                        help="tidybot=official full Kinova+Robotiq model; tidybot-so101=TidyBot base with our SO-101 task controller")
     parser.add_argument("--check-model", action="store_true")
     parser.add_argument("--cubes", type=int, default=1)
     parser.add_argument("--max-steps", type=int, default=1000)
@@ -679,6 +682,18 @@ def main(argv=None):
                         help="Explicit opt-in: fail if full physical delivery fails")
     parser.add_argument("--output", type=Path, default=Path("mobile_runs/mobile_so101.json"))
     args = parser.parse_args(argv)
+    if args.robot == "tidybot":
+        if args.perception != "oracle":
+            parser.error("--perception rgb/rgb-nav works only with --robot tidybot-so101; full TidyBot has a different arm/cameras")
+        if args.require_success:
+            parser.error("--require-success is only implemented for --robot tidybot-so101; full TidyBot is an actuated model demo, not yet a picking policy")
+        from .tidybot_full import check_model as check_full_model, execute as execute_full
+        result = (check_full_model(args.cubes) if args.check_model else
+                  execute_full(args.cubes, args.max_steps, args.viewer, args.viewer_port))
+        args.output.parent.mkdir(exist_ok=True, parents=True)
+        args.output.write_text(json.dumps(result, indent=2) + "\\n")
+        print(json.dumps(result, indent=2), flush=True)
+        return
     if args.check_model:
         model = make_model()
         print(json.dumps({"robot": "real SO-101 MuJoCo model",
