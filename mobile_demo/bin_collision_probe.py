@@ -43,11 +43,17 @@ def monitored_pairs(model):
 def visible_wheel_bin_clearance(model, data):
     """Conservative plan-view gap between visual wheels and every blue-bin geom.
 
-    Decorative wheels have contype=0, so MuJoCo never generates their contact
-    manifold. This independently checks what a viewer sees, not merely what
-    the physics engine knows as collidable.
+    Legacy LeKiwi-style decorative wheels are checked separately. With the
+    Stanford TidyBot CAD hull, both visual and collidable geometry exist and
+    the actual contact manifold is measured in monitored_pairs.
     """
-    wheels = [model.geom(f"wheel_{key}").id for key in ("a", "b", "c")]
+    # The TidyBot CAD body has no decorative omni wheels: visual hull meshes
+    # and colliding hull meshes are the same official geometry. Actual
+    # robot/bin contacts are checked by monitored_pairs below.
+    try:
+        wheels = [model.geom(f"wheel_{key}").id for key in ("a", "b", "c")]
+    except KeyError:
+        return 0.0, "TidyBot: visual hull backed by collision meshes"
     bin_geoms = [model.geom(name).id for name in
                  ("bin_base", "bin_back", "bin_front", "bin_left", "bin_right")]
     min_gap = float("inf")

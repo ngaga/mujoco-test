@@ -388,3 +388,16 @@ The end-to-end test catches failures in the server/viewer simulation loop, rathe
 **Protect `main` on GitHub:** Repository Settings → Branches → Add branch protection rule (or Settings → Rules → Rulesets). Pattern: `main`. Enable **Require a pull request before merging** and **Require status checks to pass before merging**. After the first CI run registers the check names, select both `MuJoCo smoke (ubuntu-24.04)` and `MuJoCo smoke (macos-15)`. Do not add the connector to the bypass list.
 
 GitHub Actions does not replace a real visual review on the Mac. In particular, the tests do not validate the browser's 3D rendering or robotic safety.
+
+
+### Stanford TidyBot mobile base (experimental)
+
+The default mobile demos now load the **Stanford TidyBot (2023) CAD base from Google DeepMind MuJoCo Menagerie**. It retains the EarlyBots X/Y/yaw position-servo navigation API; physical powered casters are **not** modeled. Before running offline, fetch the pinned open-source STL assets once:
+
+```bash
+python -m mobile_demo.tidybot_base --fetch
+python -m mobile_demo.so101 --check-model
+mjpython -m mobile_demo.so101 --cubes 1 --viewer
+```
+
+The composite SO-101+TidyBot is experimental; previous LeKiwi-proxy success measurements do not transfer. See [mobile_demo/SO101.md](mobile_demo/SO101.md). The original TidyBot Menagerie base uses MIT-licensed CAD meshes. TidyBot++ hardware is a separate subsequent design and should not be mistaken for the simulated 2023 base.

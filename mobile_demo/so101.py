@@ -5,8 +5,8 @@ pretrained SmolVLA evaluation*, including actual moving jaw, collision meshes,
 finger pads, joint ranges, TCP site and wrist camera. No surrogate fingers,
 welded objects, object teleportation or fake VLA inference.
 
-The base retains EarlyBots' 3DOF holonomic position-servos and the original
-navigate -> transit waypoint logic. This is NOT wheel-contact-accurate LeKiwi.
+The base uses Stanford TidyBot Menagerie CAD/collisions with 3DOF planar position-servos and the original
+navigate -> transit waypoint logic. This is NOT a physical powered-caster drivetrain model.
 An independent oracle controls the six arm joints via the upstream DLS IK.
 """
 from __future__ import annotations
@@ -23,6 +23,7 @@ import mujoco
 import numpy as np
 
 from .core import BIN_CENTER, CUBE_COUNT, SCENE
+from .tidybot_base import mount_tidybot_base
 
 BASE_JOINTS = ("base_x", "base_y", "base_yaw")
 ARM_JOINTS = ("Rotation", "Pitch", "Elbow", "Wrist_Pitch", "Wrist_Roll", "Jaw")
@@ -39,10 +40,10 @@ CLOSED = -0.05
 # can extend past the chassis at this clearance.
 PICK_CLEARANCE = 0.39
 MOUNT_XYZ = (0.14, 0.0, 0.20)
-# The visible front omni-wheel reaches 0.225m ahead of the base centre,
-# while the collision-only chassis radius is merely 0.17m. Keep the wheel
-# outside the physical left edge of the bin (x=0.75) with 25mm margin.
-VISUAL_BASE_FRONT = 0.15 + 0.075
+# Approximate frontal reach of the TidyBot CAD shell (the exact collision
+# geometry is simulated, not approximated by this scheduling guard).
+# Retain the public constant name for existing probe/test compatibility.
+VISUAL_BASE_FRONT = 0.30
 VISUAL_BIN_MARGIN = 0.025
 BIN_LEFT_EDGE = float(BIN_CENTER[0]) - 0.20
 MAX_BIN_APPROACH_BASE_X = BIN_LEFT_EDGE - VISUAL_BASE_FRONT - VISUAL_BIN_MARGIN
@@ -149,6 +150,7 @@ def compose_xml(cubes: int = CUBE_COUNT) -> str:
         geom.set("size", "0.012 0.012 0.012")
         geom.set("mass", "0.02")
         geom.set("friction", "1.2 0.005 0.0001")
+    mount_tidybot_base(root)
     return ET.tostring(root, encoding="unicode")
 
 
@@ -522,9 +524,8 @@ class ExpertSO101:
         offset = (self._carry_offset if self._carry_offset is not None
                   else np.array([PICK_CLEARANCE, 0]))
         base_goal = BIN_CENTER - offset
-        # Physical contact detection did not catch the DECORATIVE wheels:
-        # they are non-colliding visual geoms and overhang the chassis.
-        # Clamp bin approach so the visual wheel envelope clears the wall.
+        # Keep the whole TidyBot CAD shell clear of the bin during approach;
+        # actual robot-bin mesh collisions remain enabled and instrumented.
         base_goal[0] = min(float(base_goal[0]), MAX_BIN_APPROACH_BASE_X)
         cmd[3:8] = self._hold_arm_q if self._hold_arm_q is not None else current[3:8]
         cmd[8] = CLOSED
@@ -594,7 +595,7 @@ def execute(cubes=1, max_steps=1000, max_retries=2,
     if viewer:
         from mujoco.studio import launch_web, viewer_protocol
         ctx = launch_web.launch(viewer_protocol.ViewerConfig(
-            title="EarlyBots | SO-101 arm and original mobile navigator",
+            title="EarlyBots | Stanford TidyBot base + SO-101",
             http_port=viewer_port))
     else:
         ctx = nullcontext(None)
@@ -630,8 +631,8 @@ def execute(cubes=1, max_steps=1000, max_retries=2,
         if expert.vision is not None:
             expert.vision.close()
     result = {
-        "robot": "real sim2cell SO-ARM100/101 mechanical MJCF on EarlyBots mobile base",
-        "base": "original holonomic 3DOF position-servo proxy, wheels still visual only",
+        "robot": "sim2cell SO-101 arm mounted on Stanford TidyBot Menagerie CAD base",
+        "base": "Stanford TidyBot 2023 visual + collision meshes, 3DOF X/Y/yaw position servo (not caster dynamics)",
         "policy": (
             "RGB front navigation + RGB front/wrist local grasp + oracle task supervisor + DLS IK"
             if perception == "rgb-nav" else

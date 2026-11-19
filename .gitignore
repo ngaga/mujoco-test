@@ -21,3 +21,6 @@ vla/checkpoints/
 
 # Pretrained SO-101 evaluation reports and GIFs
 vla_runs/
+
+# Pinned Stanford TidyBot binary meshes downloaded on first run
+mobile_demo/assets/tidybot/*.stl
