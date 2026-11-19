@@ -488,7 +488,21 @@ class ExpertSO101:
                     self.attempts[self.cube] += 1
                     return self.recover(env, f"unreachable TCP ({self._last_ik_error:.3f} m)")
                 if self.phase == "hover" and elapsed > 1.4:
-                    self.advance("descend", t)
+                    # The heavier TidyBot chassis can still be settling when
+                    # the arm reaches hover height. Starting DESCEND with the
+                    # TCP several centimetres off target causes a finger to
+                    # push the cube across the floor rather than grasp it.
+                    # Check measured TCP and base position (never cube truth
+                    # for the RGB gate), and allow the servo to settle.
+                    tcp_hover_xy_error = float(np.linalg.norm(env.tcp_position()[:2] - pick_xy))
+                    base_hover_error = float(np.linalg.norm(current[:2] - cmd[:2]))
+                    if tcp_hover_xy_error < 0.018 and base_hover_error < 0.025:
+                        self.advance("descend", t)
+                    elif elapsed > 5.0:
+                        self.attempts[self.cube] += 1
+                        return self.recover(env,
+                            f"hover not settled (tcp_xy={tcp_hover_xy_error:.3f}m,"
+                            f" base_xy={base_hover_error:.3f}m)")
                 elif self.phase == "descend" and elapsed > 1.4:
                     tcp = env.tcp_position()
                     # In RGB mode the close decision must use the visual target,
