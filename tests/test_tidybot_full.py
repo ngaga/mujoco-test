@@ -33,6 +33,7 @@ FAKE_OFFICIAL_MODEL = """
     <position name="joint_x" joint="joint_x"/>
     <position name="joint_1" joint="joint_1"/>
   </actuator>
+  <keyframe><key name="home" qpos="0 0 0" ctrl="0 0"/></keyframe>
 </mujoco>
 """
 
@@ -60,6 +61,9 @@ class FullTidyBotCompositionTests(unittest.TestCase):
             self.assertEqual(body.find("geom").get("size"), "0.012 0.012 0.012")
         self.assertIsNone(root.find("./worldbody/body[@name='red_3']"))
         self.assertIsNone(root.find("./worldbody/body[@name='red_4']"))
+        qpos = root.find("./keyframe/key[@name='home']").get("qpos").split()
+        self.assertEqual(len(qpos), 3 + 7 * 3)  # Native key + 3 cube free joints
+        self.assertEqual(qpos[-7:], ["0.42", "-0.68", "0.0125", "1", "0", "0", "0"])
         self.assertEqual(len(root.findall("./asset/mesh")), 3)
         for element in root.findall("./asset/mesh"):
             self.assertTrue(Path(element.get("file")).is_absolute())
