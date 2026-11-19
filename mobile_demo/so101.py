@@ -37,9 +37,10 @@ OPEN = 1.4
 CLOSED = -0.05
 # TidyBot's 2023 shell extends farther forward than the old LeKiwi-like base.
 # Place the small SO-101 at the *front edge* rather than buried in the 60kg CAD
-# shell. Increase pickup standoff so its TCP can still grasp outside the hull.
+# shell. Pick at a reachable standoff, avoiding the SO-101 full-extension
+# singularity that caused pregrasp target contact and pushed some cubes away.
 # This is a simulation kinematic research mount, not validated real hardware.
-PICK_CLEARANCE = 0.58
+PICK_CLEARANCE = 0.54
 MOUNT_XYZ = (0.34, 0.0, 0.20)
 # Approximate frontal reach of the TidyBot CAD shell (the exact collision
 # geometry is simulated, not approximated by this scheduling guard).
@@ -591,7 +592,7 @@ def execute(cubes=1, max_steps=1000, max_retries=2,
         expert.vision = SO101RGBLocalizer(env.model)
     if perception == "rgb-nav":
         from .rgb_navigation import RGBObjectNavigator
-        expert.navigator = RGBObjectNavigator()
+        expert.navigator = RGBObjectNavigator(pick_clearance=PICK_CLEARANCE)
     from contextlib import nullcontext
     if viewer:
         from mujoco.studio import launch_web, viewer_protocol
