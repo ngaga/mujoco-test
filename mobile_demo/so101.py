@@ -691,7 +691,7 @@ def main(argv=None):
         result = (check_full_model(args.cubes) if args.check_model else
                   execute_full(args.cubes, args.max_steps, args.viewer, args.viewer_port))
         args.output.parent.mkdir(exist_ok=True, parents=True)
-        args.output.write_text(json.dumps(result, indent=2) + "\\n")
+        args.output.write_text(json.dumps(result, indent=2) + "\n")
         print(json.dumps(result, indent=2), flush=True)
         return
     if args.check_model:
