@@ -16,6 +16,7 @@ throughout its scripted policy. The new \`--perception rgb\` mode:
   commanded mobile base pose, and an image target must fall within 18 cm
 - takes a valid front estimate by default; when both front and wrist detections
   agree within 25 mm, averages them; uses wrist alone if front misses
+- decides whether to **close the jaws** from measured TCP versus the image-derived XY, never from ground-truth cube XY. Ground-truth position is used only for evaluation and for other explicitly privileged phases
 - never silently falls back to oracle XYZ in local RGB grasp mode; after
   repeated failed detections the normal bounded recovery system triggers
 
