@@ -65,3 +65,30 @@ generalization is not claimed from a single successful run. Next stages:
 self-localization from wheel odometry + LiDAR, RGB detection without oracle
 long-range navigation, then a pretrained/fine-tuned VLA when data and
 distribution are compatible.
+
+## Experimental RGB cube navigation
+
+Opt-in mode `--perception rgb-nav` finds red cubes directly in rendered front-camera pixels,
+projects them onto the floor using known camera calibration, and drives the existing
+planar base to an approach standoff of 39 cm. If no cube is seen, it follows
+fixed room patrol waypoints, never prerecorded cube coordinates. The close-range
+front/wrist RGB grasp stage is unchanged.
+
+    mjpython -m mobile_demo.so101 --perception rgb-nav --cubes 1 --max-steps 2000 --viewer
+    mjpython -m mobile_demo.so101 --perception rgb-nav --cubes 3 --max-steps 5500 --viewer
+
+**Limitations and non-oracle boundary:**
+- A privileged task supervisor associates an already-selected visual target
+  with a cube ID **only after** the camera-based approach. It still checks
+  grasp/transport outcomes, retries and bin occupancy with simulator truth.
+  These cube IDs or poses never choose any driving XY command.
+- Base XY comes from idealized simulator slide joints, not real wheel odometry,
+  LiDAR, SLAM or omniwheel physics.
+- Camera extrinsics and tabletop elevation are exact simulator parameters;
+  red segmentation is not robust to changes of color or lighting.
+- The bin landmark and room patrol points are predefined, not image-mapped.
+- The strict CI gate covers one cube. Three-cube navigation is an experiment.
+- The arm grasp policy is classical IK/scripted control, **not a mobile VLA**.
+
+Regression tests make cube_position() and in_bin() raise while executing an RGB
+navigation step; see tests/test_rgb_navigation.py and the new CI workflow.
