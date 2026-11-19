@@ -5,9 +5,30 @@ import unittest
 from unittest.mock import patch
 from mobile_demo.core import SCENE
 from mobile_demo.tidybot_base import MESH_SHA, mount_tidybot_base
+from mobile_demo.so101 import MOUNT_XYZ, add_visual_mount_bracket
 
 
 class TidyBotCompositionTests(unittest.TestCase):
+    def test_so101_visual_bracket_bridges_deck_without_changing_physics(self):
+        root = ET.parse(SCENE).getroot()
+        base = root.find("./worldbody/body[@name='mobile_base']")
+        assert base is not None
+        original_joints = [j.attrib.copy() for j in base.findall("joint")]
+        add_visual_mount_bracket(base)
+        names = ("so101_mount_brace_left", "so101_mount_brace_right",
+                 "so101_mount_plate")
+        for name in names:
+            geom = base.find(f"./geom[@name='{name}']")
+            self.assertIsNotNone(geom)
+            self.assertEqual(geom.get("mass"), "0")
+            self.assertEqual(geom.get("contype"), "0")
+            self.assertEqual(geom.get("conaffinity"), "0")
+            self.assertEqual(geom.get("group"), "2")
+        plate = base.find("./geom[@name='so101_mount_plate']")
+        self.assertAlmostEqual(float(plate.get("pos").split()[0]), MOUNT_XYZ[0])
+        # The visible bracket may NOT add joints, motor controls or contacts.
+        self.assertEqual([j.attrib for j in base.findall("joint")], original_joints)
+
     def test_replaces_entire_custom_base_with_official_hull(self):
         fake = {name: Path("/tmp") / name for name in MESH_SHA}
         root = ET.parse(SCENE).getroot()
