@@ -31,15 +31,16 @@ JOINTS = BASE_JOINTS + ARM_JOINTS
 BASE_ACTUATORS = ("drive_x", "drive_y", "drive_yaw")
 ACTUATORS = BASE_ACTUATORS + ARM_JOINTS
 ARM_HOME = np.array([0.0, -1.57, 1.57, 1.57, -1.57, 1.4])
-HOME = np.r_[[-1.21, -0.86, 0.0], ARM_HOME]
+HOME = np.r_[[-1.35, -0.86, 0.0], ARM_HOME]
 SLEW = np.array([0.15, 0.15, 0.9, 1.4, 1.4, 1.4, 1.4, 1.4, 2.4])
 OPEN = 1.4
 CLOSED = -0.05
-# The existing navigator approaches from the -X direction and leaves 0.39m
-# chassis/bin clearance. The arm mount is moved forward so its ~25cm reach
-# can extend past the chassis at this clearance.
-PICK_CLEARANCE = 0.39
-MOUNT_XYZ = (0.14, 0.0, 0.20)
+# TidyBot's 2023 shell extends farther forward than the old LeKiwi-like base.
+# Place the small SO-101 at the *front edge* rather than buried in the 60kg CAD
+# shell. Increase pickup standoff so its TCP can still grasp outside the hull.
+# This is a simulation kinematic research mount, not validated real hardware.
+PICK_CLEARANCE = 0.58
+MOUNT_XYZ = (0.34, 0.0, 0.20)
 # Approximate frontal reach of the TidyBot CAD shell (the exact collision
 # geometry is simulated, not approximated by this scheduling guard).
 # Retain the public constant name for existing probe/test compatibility.
