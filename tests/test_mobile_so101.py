@@ -138,6 +138,18 @@ class MobileSO101Tests(unittest.TestCase):
         self.assertFalse(expert.done)
         self.assertIsNotNone(expert._all_settled_since)
 
+    def test_stacked_cube_below_bin_rim_counts_as_delivered(self):
+        # Bin wall top is 131mm and the cube half-height is 12mm.
+        # Three stacked cubes can have a centre near 89mm.
+        env = MobileSO101Env(cubes=1)
+        adr = int(env.model.jnt_qposadr[env.model.joint("cube_0").id])
+        env.data.qpos[adr:adr + 3] = [0.89, 0.90, 0.0891]
+        mujoco.mj_forward(env.model, env.data)
+        self.assertTrue(env.in_bin(0))
+        env.data.qpos[adr + 2] = 0.1458
+        mujoco.mj_forward(env.model, env.data)
+        self.assertFalse(env.in_bin(0))
+
     def test_real_cube_free_joint_and_correct_size(self):
         model = self.env.model
         joint = model.joint("cube_0")
