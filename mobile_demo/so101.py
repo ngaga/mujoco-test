@@ -37,10 +37,10 @@ OPEN = 1.4
 CLOSED = -0.05
 # TidyBot's 2023 shell extends farther forward than the old LeKiwi-like base.
 # Place the small SO-101 at the *front edge* rather than buried in the 60kg CAD
-# shell. Pick at a reachable standoff, avoiding the SO-101 full-extension
-# singularity that caused pregrasp target contact and pushed some cubes away.
+# shell. The arm is near its reach limit; multi-cube grasp calibration remains
+# experimental and must pass physical contact-based CI before merging.
 # This is a simulation kinematic research mount, not validated real hardware.
-PICK_CLEARANCE = 0.54
+PICK_CLEARANCE = 0.58
 MOUNT_XYZ = (0.34, 0.0, 0.20)
 # Approximate frontal reach of the TidyBot CAD shell (the exact collision
 # geometry is simulated, not approximated by this scheduling guard).
