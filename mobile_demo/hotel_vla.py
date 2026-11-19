@@ -397,7 +397,9 @@ class ScriptedIK:
         if env.placed(self.cube) and self.phase in ("navigate_pick", "hover"):
             return self.next_cube(cmd)
         cube = env.cube_pos(self.cube)
-        carry_height = max(COUNTER_Z + .22, cube[2] + .20)
+        # Clearance must exceed the vanity but remain inside Gen3's reachable
+        # volume from the safe base standoff. 0.92m caused an IK/servo stall.
+        carry_height = max(COUNTER_Z + .10, cube[2] + .11)
         take_base = np.array([cube[0] - .57, cube[1], 0.0])
         put_base = np.array([BIN_XY[0] - .57, BIN_XY[1], 0.0])
         cmd[-1] = CLOSE_GRIPPER if self.phase in (
@@ -419,10 +421,10 @@ class ScriptedIK:
                 goal = np.array([cube[0], cube[1],
                                  cube[2] + (.14 if self.phase == "hover" else
                                             .026 if self.phase in ("lower", "close") else
-                                            max(.20, COUNTER_Z + .17 - cube[2]))])
+                                            carry_height - cube[2])])
             else:
                 goal = np.array([BIN_XY[0], BIN_XY[1],
-                                 BIN_BOTTOM_Z + (.23 if self.phase in ("preplace", "retract")
+                                 BIN_BOTTOM_Z + (.13 if self.phase in ("preplace", "retract")
                                                  else .075)])
             if self.arm_goal is None:
                 self.arm_goal = self.solve_ik(goal, base_goal)
