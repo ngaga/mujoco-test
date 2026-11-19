@@ -124,6 +124,7 @@ def compose_full_xml(
     for geom in source_world.findall("geom"):
         if geom.get("name") == "floor":
             official_world.append(copy.deepcopy(geom))
+    cube_key_qpos = []
     for body in source_world.findall("body"):
         name = body.get("name", "")
         if name == "blue_bin" or name.startswith("red_"):
@@ -137,7 +138,12 @@ def compose_full_xml(
                 cube_geom.set("size", "0.012 0.012 0.012")
                 cube_geom.set("mass", "0.02")
                 cube_geom.set("friction", "1.2 0.005 0.0001")
+                # An extra free joint contributes 7 qpos (XYZ + quaternion).
+                # Extend native Stanford home/retract keyframes accordingly.
+                cube_key_qpos.extend([*copy_body.get("pos").split(), "1", "0", "0", "0"])
             official_world.append(copy_body)
+    for key in root.findall("./keyframe/key"):
+        key.set("qpos", " ".join([*(key.get("qpos") or "").split(), *cube_key_qpos]))
     ET.SubElement(official_world, "light", {"pos": "-0.5 -1 3.2", "dir": "0.2 0.3 -1"})
     return ET.tostring(root, encoding="unicode")
 
@@ -189,7 +195,6 @@ def execute(cubes=1, max_steps=300, viewer=False, viewer_port=8080) -> dict:
         ))
     else:
         ctx = nullcontext(None)
-    from .so101 import BIN_CENTER
     with ctx as display:
         last = time.perf_counter()
         for step in range(max_steps):
