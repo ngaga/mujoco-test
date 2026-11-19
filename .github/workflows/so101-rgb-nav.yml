@@ -43,7 +43,7 @@ jobs:
       - name: Multi-cube RGB-navigation experimental rollout
         run: |
           python -m mobile_demo.so101 --cubes 3 --perception rgb-nav \
-            --max-steps 5500 --output mobile_runs/rgb_nav_three.json
+            --max-steps 5500 --require-success --output mobile_runs/rgb_nav_three.json
       - name: Print navigation measurements without overstating generalization
         run: |
           python - <<'PY'
