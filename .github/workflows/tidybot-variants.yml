@@ -1,0 +1,93 @@
+name: Stanford TidyBot official full and SO101 hybrid
+
+on:
+  pull_request:
+    paths:
+      - "mobile_demo/tidybot_full.py"
+      - "mobile_demo/tidybot_base.py"
+      - "mobile_demo/so101.py"
+      - "tests/test_tidybot_full.py"
+      - "tests/test_tidybot_base.py"
+      - ".github/workflows/tidybot-variants.yml"
+  push:
+    branches: [main]
+    paths:
+      - "mobile_demo/tidybot_full.py"
+      - "mobile_demo/tidybot_base.py"
+      - "mobile_demo/so101.py"
+      - ".github/workflows/tidybot-variants.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  two-robot-models:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      MUJOCO_GL: osmesa
+      PYOPENGL_PLATFORM: osmesa
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install MuJoCo, actual SO101 and headless renderer
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libosmesa6 libosmesa6-dev libgl1-mesa-dri
+          python -m pip install -r requirements.txt -r mobile_demo/so101_requirements.txt
+      - name: Verify CLI and offline model composition
+        run: |
+          python -m compileall -q mobile_demo/so101.py mobile_demo/tidybot_full.py mobile_demo/tidybot_base.py
+          python -m unittest discover -s tests -p 'test_tidybot_full.py' -v
+          python -m unittest discover -s tests -p 'test_tidybot_base.py' -v
+          python -m mobile_demo.so101 --help
+      - name: Fetch exact verified upstream full Stanford TidyBot meshes
+        run: python -m mobile_demo.tidybot_full --fetch
+      - name: Compile full TidyBot with Kinova Gen3 and Robotiq
+        run: |
+          python -m mobile_demo.so101 --robot tidybot --check-model \
+            --output mobile_runs/full_tidybot_model.json
+      - name: Real MuJoCo stepping of full TidyBot arm, gripper and base
+        run: |
+          python -m mobile_demo.so101 --robot tidybot --cubes 1 --max-steps 60 \
+            --output mobile_runs/full_tidybot_smoke.json
+      - name: Compile hybrid TidyBot base with SO101 arm
+        run: |
+          python -m mobile_demo.so101 --robot tidybot-so101 --check-model
+      - name: Physical SO101 on TidyBot base (report failure honestly)
+        run: |
+          python -m mobile_demo.so101 --robot tidybot-so101 --cubes 1 \
+            --max-steps 1400 --output mobile_runs/tidybot_so101_one.json
+      - name: Assert native full model and hybrid are distinct
+        run: |
+          python - <<'PY'
+          import json
+          from mobile_demo.tidybot_full import check_model
+          from mobile_demo.so101 import make_model
+          full = check_model(1)
+          hybrid = make_model(1)
+          assert full['actuators'] == 11, full
+          assert full['cameras'] == ['base', 'wrist']
+          assert hybrid.nu == 9, hybrid.nu
+          assert hybrid.camera('front').id >= 0
+          assert hybrid.camera('wrist').id >= 0
+          assert hybrid.body('so101_mount').id >= 0
+          with open('mobile_runs/full_tidybot_smoke.json') as f:
+              result = json.load(f)
+          assert result['simulation_ok'], result
+          assert result['task_success'] is None, 'Do not invent a Kinova picking policy'
+          with open('mobile_runs/tidybot_so101_one.json') as f:
+              one = json.load(f)
+          print('Full TidyBot=', result['simulation_ok'], 'SO101 cube delivery=', one['success'])
+          PY
+      - name: Upload exact full and hybrid simulation results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tidybot-two-robot-variants
+          path: mobile_runs/
+          if-no-files-found: warn
