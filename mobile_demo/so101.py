@@ -51,6 +51,44 @@ BIN_LEFT_EDGE = float(BIN_CENTER[0]) - 0.20
 MAX_BIN_APPROACH_BASE_X = BIN_LEFT_EDGE - VISUAL_BASE_FRONT - VISUAL_BIN_MARGIN
 
 
+def add_visual_mount_bracket(base: ET.Element) -> None:
+    """Visible link from the TidyBot deck to the forward-mounted SO-101 base.
+
+    This bracket is deliberately visual-only, without mass or contacts. Its
+    purpose is to avoid the appearance of a detached arm in the viewer while
+    preserving the proven robot geometry, grasp IK and collision environment.
+    A real load-bearing mount needs a separate mechanical design/review.
+    """
+    mount_x, mount_y, mount_z = MOUNT_XYZ
+    # Two matte structural-looking braces run from the TidyBot top plate
+    # toward the SO-101 footprint; the mounting pad sits under the vendor base.
+    # The anchors start inside the physical TidyBot shell, not in empty space.
+    for side, sign in (("left", -1), ("right", 1)):
+        y = mount_y + sign * 0.075
+        ET.SubElement(base, "geom", {
+            "name": f"so101_mount_brace_{side}",
+            "type": "capsule",
+            "fromto": f"0.085 {y:.4f} 0.280 {mount_x:.4f} {y:.4f} {mount_z - 0.015:.4f}",
+            "size": "0.018",
+            "rgba": "0.18 0.22 0.24 1",
+            "group": "2",
+            "mass": "0",
+            "contype": "0",
+            "conaffinity": "0",
+        })
+    ET.SubElement(base, "geom", {
+        "name": "so101_mount_plate",
+        "type": "box",
+        "pos": f"{mount_x:.4f} {mount_y:.4f} {mount_z - 0.015:.4f}",
+        "size": "0.100 0.105 0.014",
+        "rgba": "0.78 0.82 0.83 1",
+        "group": "2",
+        "mass": "0",
+        "contype": "0",
+        "conaffinity": "0",
+    })
+
+
 def upstream_arm_xml() -> Path:
     """Find the exact upstream arm+mesh assets installed from the pinned git SHA."""
     try:
@@ -96,6 +134,7 @@ def compose_xml(cubes: int = CUBE_COUNT) -> str:
     if vendor_base is None:
         raise RuntimeError("Upstream SO-101 Base body missing")
     mount.append(copy.deepcopy(vendor_base))
+    add_visual_mount_bracket(base)
 
     original_default = root.find("default")
     vendor_defaults = src.find("default")
