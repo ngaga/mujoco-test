@@ -127,6 +127,22 @@ def mount_tidybot_base(root: ET.Element, assets: dict[str, Path] | None = None) 
         clone.set("contype", "0" if kind == "visual" else "1")
         clone.set("conaffinity", "0" if kind == "visual" else "1")
         base.append(clone)
+
+    # The old LeKiwi-like proxy was ~3 kg; its X/Y position servos were tuned
+    # for that inertia (kp=550, kv=85 N*s/m). TidyBot's official CAD body is
+    # 60 kg, so reusing those gains makes it underdamped. The base sways while
+    # the SO-101 approaches a cube and can push the target away. Retune the
+    # *still idealized* planar servos for the modeled mass; this is NOT a
+    # measured powered-caster motor model or a physically validated drive.
+    # For 60 kg, kp=6000 N/m and kv=1200 N*s/m are near critical damping.
+    for name in ("drive_x", "drive_y"):
+        servo = root.find(f"./actuator/position[@name='{name}']")
+        if servo is None:
+            raise ValueError(f"Expected EarlyBots planar actuator {name}")
+        servo.set("kp", "6000")
+        servo.set("kv", "1200")
+        servo.set("forcelimited", "true")
+        servo.set("forcerange", "-900 900")
     return root
 
 
