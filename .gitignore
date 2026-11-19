@@ -24,3 +24,7 @@ vla_runs/
 
 # Pinned Stanford TidyBot binary meshes downloaded on first run
 mobile_demo/assets/tidybot/*.stl
+
+# Official full TidyBot Kinova/Robotiq meshes and XML downloaded on demand
+mobile_demo/assets/tidybot/**/*.stl
+mobile_demo/assets/tidybot/*.xml
