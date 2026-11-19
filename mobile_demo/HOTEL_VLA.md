@@ -67,11 +67,12 @@ policy. `--check-model` is structural, not a demonstration of VLA success.
 ## Validation
 
 ```bash
-python -m unittest tests.test_hotel_vla -v
+python -m unittest discover -s tests -p 'test_hotel_vla.py' -v
 mjpython -m mobile_demo.hotel_vla --check-model
 mjpython -m mobile_demo.hotel_vla --policy scripted --max-steps 3500 \
   --output mobile_runs/hotel_vla.json --require-success
 ```
 
-Success is defined only by the **measured simulated centers of all three cubes
-inside the bin**. A failed smoke run must not be described as solved.
+Success is defined only if **all three cube centers are physically inside
+the bin and their velocities are low**, after the controller has released
+them. A failed smoke run must not be described as solved.
