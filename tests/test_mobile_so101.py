@@ -54,7 +54,8 @@ class MobileSO101Tests(unittest.TestCase):
             geom = model.geom(name)
             self.assertEqual(int(geom.contype[0]), 0)
             self.assertEqual(int(geom.conaffinity[0]), 0)
-            self.assertAlmostEqual(float(geom.mass[0]), 0.0)
+            # MuJoCo compiles geom mass into body inertia; XML mass=0 is
+            # verified directly in test_tidybot_base instead.
         # Existing SO101 base and TCP are the same real mechanical arm.
         self.assertEqual(model.nu, 9)
         model.body("so101_mount")
