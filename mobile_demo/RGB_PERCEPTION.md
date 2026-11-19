@@ -87,7 +87,8 @@ front/wrist RGB grasp stage is unchanged.
 - Camera extrinsics and tabletop elevation are exact simulator parameters;
   red segmentation is not robust to changes of color or lighting.
 - The bin landmark and room patrol points are predefined, not image-mapped.
-- The strict CI gate covers one cube. Three-cube navigation is an experiment.
+- The strict CI gate now covers both 1-cube and 3-cube deterministic missions;
+  passing them does **not** prove robustness across new poses or lighting.
 - The arm grasp policy is classical IK/scripted control, **not a mobile VLA**.
 
 Regression tests make cube_position() and in_bin() raise while executing an RGB
