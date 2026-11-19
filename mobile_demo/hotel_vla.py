@@ -200,10 +200,13 @@ class HotelEnv:
         self.model = make_model()
         self.data = mujoco.MjData(self.model)
         self.action_ids = [self.model.actuator(n).id for n in ACTUATORS]
-        self.joint_adr = [self.model.joint(n).qposadr for n in STATE_JOINTS]
+        self.joint_adr = np.array([int(self.model.jnt_qposadr[self.model.joint(n).id])
+                                   for n in STATE_JOINTS], dtype=int)
         self.cube_ids = [self.model.body(f"hotel_red_{i}").id for i in range(CUBES)]
-        self.arm_qadr = np.array([self.model.joint(n).qposadr for n in ARM_NAMES], dtype=int)
-        self.arm_vadr = np.array([self.model.joint(n).dofadr for n in ARM_NAMES], dtype=int)
+        self.arm_qadr = np.array([int(self.model.jnt_qposadr[self.model.joint(n).id])
+                                       for n in ARM_NAMES], dtype=int)
+        self.arm_vadr = np.array([int(self.model.jnt_dofadr[self.model.joint(n).id])
+                                       for n in ARM_NAMES], dtype=int)
         self.site_id = self.model.site("pinch_site").id
         self.reset()
 
@@ -572,10 +575,13 @@ def main(argv=None):
     if args.policy == "smolvla" and not args.checkpoint:
         parser.error("Real VLA inference requires a trained --checkpoint for 11D TidyBot")
     if args.check_model:
-        model = make_model()
-        print(json.dumps({"model": model.nbody, "nu": model.nu,
+        env = HotelEnv()
+        assert env.state().shape == (11,), f"Joint state must be flat 11D, got {env.state().shape}"
+        assert env.arm_qadr.shape == (7,) and env.arm_vadr.shape == (7,)
+        print(json.dumps({"model": env.model.nbody, "nu": env.model.nu,
                           "cameras": list(CAMERAS) + ["hotel_overview"],
-                          "cubes": CUBES, "policy": "no inference in --check-model"}, indent=2))
+                          "cubes": CUBES, "state_dim": len(env.state()),
+                          "policy": "no inference in --check-model"}, indent=2))
         return
     run(args)
 
