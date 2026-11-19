@@ -5,8 +5,8 @@ pretrained SmolVLA evaluation*, including actual moving jaw, collision meshes,
 finger pads, joint ranges, TCP site and wrist camera. No surrogate fingers,
 welded objects, object teleportation or fake VLA inference.
 
-The base retains EarlyBots' 3DOF holonomic position-servos and the original
-navigate -> transit waypoint logic. This is NOT wheel-contact-accurate LeKiwi.
+The base uses Stanford TidyBot Menagerie CAD/collisions with 3DOF planar position-servos and the original
+navigate -> transit waypoint logic. This is NOT a physical powered-caster drivetrain model.
 An independent oracle controls the six arm joints via the upstream DLS IK.
 """
 from __future__ import annotations
@@ -23,6 +23,7 @@ import mujoco
 import numpy as np
 
 from .core import BIN_CENTER, CUBE_COUNT, SCENE
+from .tidybot_base import mount_tidybot_base
 
 BASE_JOINTS = ("base_x", "base_y", "base_yaw")
 ARM_JOINTS = ("Rotation", "Pitch", "Elbow", "Wrist_Pitch", "Wrist_Roll", "Jaw")
@@ -30,19 +31,21 @@ JOINTS = BASE_JOINTS + ARM_JOINTS
 BASE_ACTUATORS = ("drive_x", "drive_y", "drive_yaw")
 ACTUATORS = BASE_ACTUATORS + ARM_JOINTS
 ARM_HOME = np.array([0.0, -1.57, 1.57, 1.57, -1.57, 1.4])
-HOME = np.r_[[-1.21, -0.86, 0.0], ARM_HOME]
+HOME = np.r_[[-1.35, -0.86, 0.0], ARM_HOME]
 SLEW = np.array([0.15, 0.15, 0.9, 1.4, 1.4, 1.4, 1.4, 1.4, 2.4])
 OPEN = 1.4
 CLOSED = -0.05
-# The existing navigator approaches from the -X direction and leaves 0.39m
-# chassis/bin clearance. The arm mount is moved forward so its ~25cm reach
-# can extend past the chassis at this clearance.
-PICK_CLEARANCE = 0.39
-MOUNT_XYZ = (0.14, 0.0, 0.20)
-# The visible front omni-wheel reaches 0.225m ahead of the base centre,
-# while the collision-only chassis radius is merely 0.17m. Keep the wheel
-# outside the physical left edge of the bin (x=0.75) with 25mm margin.
-VISUAL_BASE_FRONT = 0.15 + 0.075
+# TidyBot's 2023 shell extends farther forward than the old LeKiwi-like base.
+# Place the small SO-101 at the *front edge* rather than buried in the 60kg CAD
+# shell. The arm is near its reach limit; multi-cube grasp calibration remains
+# experimental and must pass physical contact-based CI before merging.
+# This is a simulation kinematic research mount, not validated real hardware.
+PICK_CLEARANCE = 0.58
+MOUNT_XYZ = (0.34, 0.0, 0.20)
+# Approximate frontal reach of the TidyBot CAD shell (the exact collision
+# geometry is simulated, not approximated by this scheduling guard).
+# Retain the public constant name for existing probe/test compatibility.
+VISUAL_BASE_FRONT = 0.30
 VISUAL_BIN_MARGIN = 0.025
 BIN_LEFT_EDGE = float(BIN_CENTER[0]) - 0.20
 MAX_BIN_APPROACH_BASE_X = BIN_LEFT_EDGE - VISUAL_BASE_FRONT - VISUAL_BIN_MARGIN
@@ -149,6 +152,7 @@ def compose_xml(cubes: int = CUBE_COUNT) -> str:
         geom.set("size", "0.012 0.012 0.012")
         geom.set("mass", "0.02")
         geom.set("friction", "1.2 0.005 0.0001")
+    mount_tidybot_base(root)
     return ET.tostring(root, encoding="unicode")
 
 
@@ -522,9 +526,8 @@ class ExpertSO101:
         offset = (self._carry_offset if self._carry_offset is not None
                   else np.array([PICK_CLEARANCE, 0]))
         base_goal = BIN_CENTER - offset
-        # Physical contact detection did not catch the DECORATIVE wheels:
-        # they are non-colliding visual geoms and overhang the chassis.
-        # Clamp bin approach so the visual wheel envelope clears the wall.
+        # Keep the whole TidyBot CAD shell clear of the bin during approach;
+        # actual robot-bin mesh collisions remain enabled and instrumented.
         base_goal[0] = min(float(base_goal[0]), MAX_BIN_APPROACH_BASE_X)
         cmd[3:8] = self._hold_arm_q if self._hold_arm_q is not None else current[3:8]
         cmd[8] = CLOSED
@@ -589,12 +592,12 @@ def execute(cubes=1, max_steps=1000, max_retries=2,
         expert.vision = SO101RGBLocalizer(env.model)
     if perception == "rgb-nav":
         from .rgb_navigation import RGBObjectNavigator
-        expert.navigator = RGBObjectNavigator()
+        expert.navigator = RGBObjectNavigator(pick_clearance=PICK_CLEARANCE)
     from contextlib import nullcontext
     if viewer:
         from mujoco.studio import launch_web, viewer_protocol
         ctx = launch_web.launch(viewer_protocol.ViewerConfig(
-            title="EarlyBots | SO-101 arm and original mobile navigator",
+            title="EarlyBots | Stanford TidyBot base + SO-101",
             http_port=viewer_port))
     else:
         ctx = nullcontext(None)
@@ -630,8 +633,8 @@ def execute(cubes=1, max_steps=1000, max_retries=2,
         if expert.vision is not None:
             expert.vision.close()
     result = {
-        "robot": "real sim2cell SO-ARM100/101 mechanical MJCF on EarlyBots mobile base",
-        "base": "original holonomic 3DOF position-servo proxy, wheels still visual only",
+        "robot": "sim2cell SO-101 arm mounted on Stanford TidyBot Menagerie CAD base",
+        "base": "Stanford TidyBot 2023 visual + collision meshes, 3DOF X/Y/yaw position servo (not caster dynamics)",
         "policy": (
             "RGB front navigation + RGB front/wrist local grasp + oracle task supervisor + DLS IK"
             if perception == "rgb-nav" else
@@ -664,6 +667,9 @@ def execute(cubes=1, max_steps=1000, max_retries=2,
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--robot", choices=("tidybot", "tidybot-so101"),
+                        default="tidybot-so101",
+                        help="tidybot=official full Kinova+Robotiq model; tidybot-so101=TidyBot base with our SO-101 task controller")
     parser.add_argument("--check-model", action="store_true")
     parser.add_argument("--cubes", type=int, default=1)
     parser.add_argument("--max-steps", type=int, default=1000)
@@ -676,6 +682,18 @@ def main(argv=None):
                         help="Explicit opt-in: fail if full physical delivery fails")
     parser.add_argument("--output", type=Path, default=Path("mobile_runs/mobile_so101.json"))
     args = parser.parse_args(argv)
+    if args.robot == "tidybot":
+        if args.perception != "oracle":
+            parser.error("--perception rgb/rgb-nav works only with --robot tidybot-so101; full TidyBot has a different arm/cameras")
+        if args.require_success:
+            parser.error("--require-success is only implemented for --robot tidybot-so101; full TidyBot is an actuated model demo, not yet a picking policy")
+        from .tidybot_full import check_model as check_full_model, execute as execute_full
+        result = (check_full_model(args.cubes) if args.check_model else
+                  execute_full(args.cubes, args.max_steps, args.viewer, args.viewer_port))
+        args.output.parent.mkdir(exist_ok=True, parents=True)
+        args.output.write_text(json.dumps(result, indent=2) + "\n")
+        print(json.dumps(result, indent=2), flush=True)
+        return
     if args.check_model:
         model = make_model()
         print(json.dumps({"robot": "real SO-101 MuJoCo model",

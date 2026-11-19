@@ -5,6 +5,8 @@ on:
     paths:
       - "mobile_demo/bin_collision_probe.py"
       - "mobile_demo/so101.py"
+      - "mobile_demo/tidybot_base.py"
+      - "mobile_demo/vendor/tidybot/**"
       - "tests/test_mobile_so101.py"
       - ".github/workflows/so101-bin-clearance.yml"
   workflow_dispatch:

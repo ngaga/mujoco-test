@@ -7,6 +7,8 @@ on:
       - "mobile_demo/so101_requirements.txt"
       - "mobile_demo/SO101.md"
       - "mobile_demo/scene.xml"
+      - "mobile_demo/tidybot_base.py"
+      - "mobile_demo/vendor/tidybot/**"
       - "tests/test_mobile_so101.py"
       - ".github/workflows/mobile-so101.yml"
   workflow_dispatch:

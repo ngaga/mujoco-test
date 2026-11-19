@@ -388,3 +388,16 @@ The end-to-end test catches failures in the server/viewer simulation loop, rathe
 **Protect `main` on GitHub:** Repository Settings → Branches → Add branch protection rule (or Settings → Rules → Rulesets). Pattern: `main`. Enable **Require a pull request before merging** and **Require status checks to pass before merging**. After the first CI run registers the check names, select both `MuJoCo smoke (ubuntu-24.04)` and `MuJoCo smoke (macos-15)`. Do not add the connector to the bypass list.
 
 GitHub Actions does not replace a real visual review on the Mac. In particular, the tests do not validate the browser's 3D rendering or robotic safety.
+
+
+### Stanford TidyBot mobile base (experimental)
+
+The SO-101 executable now provides **two explicit modes**: `--robot tidybot` (complete original Stanford TidyBot with Kinova Gen3 + Robotiq 2F-85), and `--robot tidybot-so101` (2023 TidyBot CAD base with our SO-101 arm). It retains the EarlyBots X/Y/yaw position-servo navigation API; physical powered casters are **not** modeled. Before running offline, fetch the pinned open-source STL assets once:
+
+```bash
+python -m mobile_demo.tidybot_full --fetch
+mjpython -m mobile_demo.so101 --robot tidybot --viewer --max-steps 400
+mjpython -m mobile_demo.so101 --robot tidybot-so101 --perception rgb-nav --cubes 3 --viewer --max-steps 5500
+```
+
+The complete Stanford Gen3 model is currently an actuated simulation demo, not an autonomous pick/place policy. The composite SO-101+TidyBot remains experimental; previous LeKiwi-proxy success measurements do not transfer. See [mobile_demo/SO101.md](mobile_demo/SO101.md). The original TidyBot Menagerie base uses MIT-licensed CAD meshes. TidyBot++ hardware is a separate subsequent design and should not be mistaken for the simulated 2023 base.

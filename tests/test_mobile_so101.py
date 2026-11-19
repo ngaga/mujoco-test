@@ -1,4 +1,4 @@
-"""Physical regression tests of the actual SO-101 on our old 3DOF mobile base."""
+"""Physical regression tests of SO-101 on Stanford TidyBot CAD base."""
 import unittest
 from importlib.util import find_spec
 
@@ -38,6 +38,14 @@ class MobileSO101Tests(unittest.TestCase):
         with self.assertRaises(KeyError):
             model.joint("reach")  # The old toy cartesian arm is removed.
         np.testing.assert_allclose(self.env.state(), HOME, atol=1e-3)
+
+    def test_tidybot_cad_is_present_and_old_wheels_are_gone(self):
+        model = self.env.model
+        for suffix in ("body", "bumper", "bottom_plate", "top_plate", "arm_plate"):
+            model.geom(f"tidybot_{suffix}_visual")
+            model.geom(f"tidybot_{suffix}_collision")
+        with self.assertRaises(KeyError):
+            model.geom("wheel_a")
 
     def test_original_planar_base_physically_moves(self):
         initial = self.env.state()

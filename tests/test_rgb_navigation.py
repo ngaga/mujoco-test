@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import numpy as np
 
 from mobile_demo.rgb_navigation import RGBObjectNavigator, PICK_CLEARANCE
-from mobile_demo.so101 import ExpertSO101
+from mobile_demo.so101 import ExpertSO101, PICK_CLEARANCE as SO101_PICK_CLEARANCE
 
 
 class OdometryOnlyEnv:
@@ -48,6 +48,18 @@ class RGBNavigationTests(unittest.TestCase):
         np.testing.assert_allclose(goal2, goal)
         np.testing.assert_allclose(arrived2, [-0.73, -0.86])
 
+    def test_tidybot_rgb_standoff_matches_so101_controller(self):
+        # The mobile navigation and arm must agree on the same relative reach.
+        # The old hard-coded 0.39 m with the TidyBot 0.54 m mount was wrong.
+        nav = RGBObjectNavigator(pick_clearance=SO101_PICK_CLEARANCE)
+        env = OdometryOnlyEnv()
+        visual_target = np.array([-0.73, -0.86])
+        goal, arrived = nav.step(env, FakeRGB([visual_target]), 0.0)
+        np.testing.assert_allclose(goal + [SO101_PICK_CLEARANCE, 0.0],
+                                   visual_target)
+        self.assertIsNone(arrived)
+        self.assertAlmostEqual(nav.report()['pick_clearance_m'],
+                               SO101_PICK_CLEARANCE)
     def test_bin_objects_and_unreachable_coordinates_are_excluded(self):
         self.assertFalse(RGBObjectNavigator.selectable((0.95, 0.90)))
         self.assertFalse(RGBObjectNavigator.selectable((-1.45, -0.5)))
