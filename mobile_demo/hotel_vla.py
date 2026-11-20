@@ -428,6 +428,8 @@ class ScriptedIK:
         """Open, back off with static arm, then stow before starting next pick."""
         cmd[-1] = OPEN_GRIPPER
         if self.phase == "recover_release":
+            # Stop mobile base as well as arm before releasing anything.
+            cmd[:3] = self.env.data.qpos[:3].copy()
             cmd[3:10] = self.recovery_arm
             if elapsed > .75:
                 self.advance("recover_backoff")
