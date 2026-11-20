@@ -17,7 +17,7 @@ FAKE_FULL = """<mujoco model="tidybot">
  <worldbody><body name="base_link"><joint name="joint_x"/>
  <joint name="joint_y"/><joint name="joint_th"/>
  <camera name="base"/><camera name="wrist"/>
- <site name="pinch_site"/></body></worldbody>
+ <site name="pinch_site"/><body name="bracelet_link"/></body></worldbody>
  <keyframe>
   <key name="home" qpos="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0" ctrl="0"/>
   <key name="retract" qpos="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0" ctrl="0"/>
@@ -51,6 +51,10 @@ class HotelTests(unittest.TestCase):
         self.assertIn("hotel_floor", names)
         self.assertGreater(float(names["hotel_bin_bottom"].get("pos").split()[2]), COUNTER_Z)
         self.assertNotIn("vanity_cabinet", names)  # would fill the sink cavity
+        self.assertIsNotNone(self.root.find(".//geom[@name='hotel_cargo_clearance_proxy']"))
+        proxy = self.root.find(".//geom[@name='hotel_cargo_clearance_proxy']")
+        self.assertEqual(proxy.get("contype"), "0")
+        self.assertEqual(proxy.get("conaffinity"), "0")
         self.assertIsNotNone(self.root.find(".//camera[@name='hotel_front']"))
         self.assertEqual(set(CAMERAS), {"hotel_front", "wrist"})
 

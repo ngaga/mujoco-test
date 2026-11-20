@@ -1,0 +1,76 @@
+name: TidyBot hotel RRTConnect collision and three-cube physics
+
+on:
+  pull_request:
+    paths:
+      - 'mobile_demo/collision_planner.py'
+      - 'mobile_demo/hotel_vla.py'
+      - 'mobile_demo/HOTEL_VLA.md'
+      - 'tests/test_collision_planner.py'
+      - 'tests/test_hotel_vla.py'
+      - '.github/workflows/hotel-rrtconnect.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  swept-planning-and-physics:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      MUJOCO_GL: osmesa
+      PYOPENGL_PLATFORM: osmesa
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install native MuJoCo and Python OMPL wheel
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libosmesa6 libosmesa6-dev libgl1-mesa-dri
+          python -m pip install -r requirements.txt "ompl==2.0.1"
+      - name: Compile and validate planner API (including true OMPL detour)
+        run: |
+          python -m compileall -q mobile_demo/hotel_vla.py mobile_demo/collision_planner.py tests/test_collision_planner.py
+          python -m unittest discover -s tests -p 'test_hotel_vla.py' -v
+          python -m unittest discover -s tests -p 'test_collision_planner.py' -v
+      - name: Fetch pinned Stanford meshes and compile Kinova/Robotiq bathroom
+        run: |
+          python -m mobile_demo.tidybot_full --fetch
+          python -m mobile_demo.hotel_vla --check-model
+      - name: Compare direct vertical deposit with OMPL (physical cubes)
+        run: |
+          python -m mobile_demo.hotel_vla --policy scripted --planner vertical \
+            --max-steps 3500 --output mobile_runs/hotel_vertical.json
+          python -m mobile_demo.hotel_vla --policy scripted --planner ompl \
+            --planner-timeout 2.5 --max-steps 3500 \
+            --output mobile_runs/hotel_ompl.json
+      - name: Strict report of collision prevention and three-cube outcome
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          runs = [json.loads(Path(f'mobile_runs/hotel_{m}.json').read_text())
+                  for m in ('vertical','ompl')]
+          for m, run in zip(('vertical','ompl'), runs):
+              print(m, 'delivered', run['delivered'], '/3',
+                    'contacts', run['planner']['bin_arm_contact_physics_steps'],
+                    'failure', run['failure'],
+                    'plans', run['planner']['plan_methods'])
+              assert run['cubes']==3
+              assert run['policy']=='scripted' and not run['vla_inference_executed']
+          ompl = runs[1]
+          assert ompl['planner']['mode']=='ompl'
+          assert ompl['planner']['bin_arm_contact_physics_steps']==0, 'Arm hit blue bin'
+          assert ompl['success'] and ompl['delivered']==3, 'Strict 3/3 physics acceptance NOT achieved'
+          PY
+      - name: Archive both detailed reports even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hotel-rrtconnect-vs-vertical
+          path: mobile_runs/hotel_*.json
+          if-no-files-found: warn
