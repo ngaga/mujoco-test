@@ -329,7 +329,8 @@ class ScriptedIK:
     """Deterministic privileged-pose controller. Debug baseline only, not VLA."""
     phases = ("navigate_pick", "hover", "lower", "close", "lift",
               "transit_retract", "navigate_bin", "preplace", "place", "open", "retract",
-              "depart_bin", "clear_bin", "recover_release", "recover_backoff", "recover_home")
+              "depart_bin", "clear_bin", "recover_release", "recover_backoff",
+              "recover_home", "settle_all")
 
     def __init__(self, env: HotelEnv, retries=-1, planner="vertical", planner_timeout=2.5):
         from .collision_planner import MuJoCoCollisionChecker, JointMotionPlanner
@@ -537,6 +538,15 @@ class ScriptedIK:
             return cmd
         if self.phase.startswith("recover_"):
             return self.recovery_command(cmd, elapsed)
+        if self.phase == "settle_all":
+            if env.cubes_settled() and elapsed > .9:
+                self.done = True
+            elif env.count_placed() != CUBES and elapsed > .8:
+                target = self.scheduler.choose(env.placed, current=self.cube, rotate=True)
+                if target is not None:
+                    self.cube = target
+                    self.advance("depart_bin")
+            return validate_action(np.clip(cmd, ACTION_LOW, ACTION_HIGH))
         # Scripted mode MAY inspect all cube world poses. The VLA NEVER does.
         if env.placed(self.cube) and self.phase in ("navigate_pick", "hover"):
             return self.next_cube(cmd)
@@ -710,9 +720,11 @@ class ScriptedIK:
         next_cube = self.scheduler.choose(self.env.placed,
                                           current=current, rotate=True)
         if next_cube is None:
-            self.done = self.env.cubes_settled()
-            if not self.done:
-                self.failure = "No eligible undelivered cubes or unsettled bin"
+            if self.env.count_placed() == CUBES:
+                # Wait for gravity and contacts to settle: placement != settled.
+                self.advance("settle_all")
+            else:
+                self.failure = "No eligible undelivered cubes under retry budget"
         else:
             self.cube = next_cube
             # Do not drive the base with the gripper still inside the bin.
@@ -736,6 +748,8 @@ def run(args):
     error = None
     vla_stable_since = None
     vla_done = False
+    injected_drop = False
+    drop_open_until = -1.0
     ctx = nullcontext(None)
     if args.viewer:
         from mujoco.studio import launch_web, viewer_protocol
@@ -750,6 +764,16 @@ def run(args):
                     break
                 try:
                     action = (script.command() if script else model_policy.action(env, renderers))
+                    if (args.inject_drop_once and script and not injected_drop and
+                            script.phase == "transit_retract" and
+                            env.data.time - script.entered > .6):
+                        injected_drop = True
+                        drop_open_until = float(env.data.time) + 1.0
+                        print("Injected real physical gripper opening once during carry",
+                              flush=True)
+                    if injected_drop and env.data.time < drop_open_until:
+                        action = action.copy()
+                        action[-1] = OPEN_GRIPPER
                     env.monitor_phase = script.phase if script else "VLA"
                     contacts_before = script.checker.contacts if script else 0
                     env.step(action)
@@ -798,14 +822,18 @@ def run(args):
     finally:
         for renderer in renderers.values():
             renderer.close()
+    if script and not script.done and not script.failure and frames >= args.max_steps:
+        error = (f"Episode reached {args.max_steps} steps: "
+                 f"{env.count_placed()}/{CUBES} cubes placed, "
+                 f"{script.retries} retries performed")
     result = {"robot": "official Stanford TidyBot Gen3/Robotiq 2F85",
-              "scene": "hotel bathroom: one floor cube, two countertop cubes, countertop blue bin",
+              "scene": "hotel bathroom: three countertop cubes, countertop blue bin",
               "policy": args.policy, "vla_inference_executed": model_policy is not None,
               "privileged_object_poses_used_by_policy": script is not None,
               "cubes": CUBES, "delivered": env.count_placed(),
               "success": bool(env.cubes_settled() and
                               (script.done if script else vla_done)),
-              "failure": (script.failure or error if script else error),
+              "failure": ((script.failure or error) if script else error),
               "simulation_seconds": round(float(env.data.time), 2),
               "steps": frames, "final_cube_xyz": [env.cube_pos(i).round(4).tolist()
                                                      for i in range(CUBES)],
@@ -814,6 +842,7 @@ def run(args):
               "planner": script.planner_report() if script else None,
               "planner_errors": script.planner_errors if script else None,
               "recovery": script.retry_report() if script else None,
+              "injected_gripper_drop": injected_drop,
               "last_arm_q": env.data.qpos[env.arm_qadr].round(4).tolist(),
               "last_arm_target": (script.arm_goal.round(4).tolist()
                                   if script and script.arm_goal is not None else None),
@@ -839,6 +868,9 @@ def main(argv=None):
     parser.add_argument("--retries", type=int, default=-1,
                         help="Additional retries per cube; -1 keeps revisiting "
                              "all undelivered cubes until --max-steps")
+    parser.add_argument("--inject-drop-once", action="store_true",
+                        help="Physics fault test: open Robotiq during first transport, "
+                             "then verify that the controller attempts recovery")
     parser.add_argument("--planner", choices=("vertical", "ompl"), default="vertical",
                         help="Vertical Cartesian deposit with checked direct arm moves, or OMPL RRTConnect")
     parser.add_argument("--planner-timeout", type=float, default=2.5,
@@ -851,6 +883,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.planner_timeout <= 0:
         parser.error("--planner-timeout must be positive")
+    if args.inject_drop_once and args.policy != "scripted":
+        parser.error("--inject-drop-once requires the scripted recovery controller")
     if args.max_steps < 1 or args.retries < -1:
         parser.error("--max-steps must be positive; --retries must be >= -1")
     if args.policy == "smolvla" and not args.checkpoint:
