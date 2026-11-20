@@ -400,18 +400,18 @@ class ScriptedIK:
                 rot_err = .5 * sum(
                     (np.cross(rotation[:, i], desired[:, i]) for i in range(3)),
                     np.zeros(3))
-                err = np.r_[pos_err, rot_err * .38]
-                score = float(np.linalg.norm(pos_err) + .12 * np.linalg.norm(rot_err))
+                err = np.r_[pos_err, rot_err * .18]
+                score = float(np.linalg.norm(pos_err) + .045 * np.linalg.norm(rot_err))
                 if score < seed_error:
                     seed_error = score
                     seed_best = data.qpos[self.env.arm_qadr].copy()
-                if np.linalg.norm(pos_err) < .006 and np.linalg.norm(rot_err) < .09:
+                if np.linalg.norm(pos_err) < .006 and np.linalg.norm(rot_err) < .27:
                     break
                 jacp = np.zeros((3, model.nv))
                 jacr = np.zeros((3, model.nv))
                 mujoco.mj_jacSite(model, data, jacp, jacr, site_id)
                 j = np.vstack([jacp[:, self.env.arm_vadr],
-                               .38 * jacr[:, self.env.arm_vadr]])
+                               .18 * jacr[:, self.env.arm_vadr]])
                 dq = j.T @ np.linalg.solve(j @ j.T + .035**2 * np.eye(6), err)
                 data.qpos[self.env.arm_qadr] = np.clip(
                     data.qpos[self.env.arm_qadr] + np.clip(dq, -.13, .13),
@@ -429,7 +429,7 @@ class ScriptedIK:
                 break
         if avoid_bin:
             self.prev_ik_error = best_safe_error if best_safe is not None else best_error
-            if best_safe is None or best_safe_error > .06:
+            if best_safe is None or best_safe_error > .075:
                 return None
             return best_safe
         self.prev_ik_error = best_error
@@ -454,7 +454,7 @@ class ScriptedIK:
         take_base = np.array([cube[0] - .57, cube[1], 0.0])
         # The previous 57cm standoff left the TCP too far from bin center:
         # last baseline stopped before deposit. 51cm is still outside cabinet.
-        put_base = np.array([BIN_XY[0] - .51, BIN_XY[1], 0.0])
+        put_base = np.array([BIN_XY[0] - .495, BIN_XY[1], 0.0])
         cmd[-1] = CLOSE_GRIPPER if self.phase in (
             "close", "lift", "transit_retract", "navigate_bin", "preplace", "place") else OPEN_GRIPPER
         if self.phase == "navigate_pick":
@@ -474,7 +474,7 @@ class ScriptedIK:
             cmd[:3] = base_goal
             if self.phase == "transit_retract":
                 # Fold the carried cube inward before crossing the rim.
-                goal = np.array([take_base[0] + .32, take_base[1],
+                goal = np.array([take_base[0] + .28, take_base[1],
                                  COUNTER_Z + .145])
             elif self.phase in ("hover", "lower", "close", "lift"):
                 goal = np.array([cube[0], cube[1],
@@ -485,11 +485,11 @@ class ScriptedIK:
                 # For the final place/retract, enforce multiple Cartesian Z
                 # waypoints at fixed bin center; check/planning every joint edge.
                 if self.phase == "preplace":
-                    goal_z = BIN_BOTTOM_Z + .15
+                    goal_z = BIN_BOTTOM_Z + .139
                 elif self.phase == "place":
-                    goal_z = BIN_BOTTOM_Z + .15 - (self.vertical_index + 1) * (.075 / 4)
+                    goal_z = BIN_BOTTOM_Z + .139 - (self.vertical_index + 1) * (.064 / 4)
                 elif self.phase == "retract":
-                    goal_z = BIN_BOTTOM_Z + .075 + (self.vertical_index + 1) * (.075 / 4)
+                    goal_z = BIN_BOTTOM_Z + .075 + (self.vertical_index + 1) * (.064 / 4)
                 else:
                     goal_z = BIN_BOTTOM_Z + .075
                 goal = np.array([BIN_XY[0], BIN_XY[1], goal_z])
