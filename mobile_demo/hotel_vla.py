@@ -52,9 +52,12 @@ ACTION_HIGH = np.r_[[0.30, 1.05, math.pi], ARM_HIGH, [255.0]]
 MAX_TARGET_RATE = np.r_[[0.16, 0.16, 0.65], np.full(7, 0.85), [420.0]]
 # All three spawns are explicit, orientations intentionally differ.
 SPAWNS = (
-    ((0.701, -0.335, COUNTER_Z + 0.018), (0.9950, 0.0, 0.0, 0.0998)),
-    ((0.695, -0.050, COUNTER_Z + 0.018), (0.9886, 0.095, 0.025, 0.108)),
-    ((0.687, 0.235, COUNTER_Z + 0.018), (0.963, -0.038, 0.070, -0.256)),
+    # Keep all objects on the physical stone slab, but closer to the near
+    # edge (x=0.55) than the earlier x=0.70 arrangement. This gives the
+    # Kinova more chassis/table clearance without moving the cubes in physics.
+    ((0.607, -0.315, COUNTER_Z + 0.018), (0.9950, 0.0, 0.0, 0.0998)),
+    ((0.632, -0.025, COUNTER_Z + 0.018), (0.9886, 0.095, 0.025, 0.108)),
+    ((0.612, 0.255, COUNTER_Z + 0.018), (0.963, -0.038, 0.070, -0.256)),
 )
 
 
@@ -559,7 +562,7 @@ class ScriptedIK:
         # Countertop items are higher and near the edge of the Gen3's
         # workspace. A 53cm standoff balances reach with countertop collision clearance
         # hover while keeping the TidyBot chassis short of the vanity.
-        pick_standoff = .57 if cube[2] < .20 else .53
+        pick_standoff = .57 if cube[2] < .20 else .57
         # Try slightly different safe reach when a pose repeatedly fails.
         variants = (0.0, .04, -.035, .065, -.055)
         pick_standoff += variants[self.attempts[self.cube] % len(variants)]
