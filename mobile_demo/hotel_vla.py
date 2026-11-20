@@ -512,8 +512,11 @@ class ScriptedIK:
                 else:
                     goal_z = BIN_BOTTOM_Z + .075
                 goal = np.array([BIN_XY[0], BIN_XY[1], goal_z])
+            # The elevated cube pickup also needs collision-safe joint
+            # routing: the direct hover target previously stalled joints 5/6.
             delivery = self.phase in (
-                "transit_retract", "preplace", "place", "retract", "depart_bin")
+                "hover", "transit_retract", "preplace", "place",
+                "retract", "depart_bin")
             if self.arm_goal is None:
                 self.arm_goal = self.solve_ik(
                     goal, base_goal, avoid_bin=delivery,
