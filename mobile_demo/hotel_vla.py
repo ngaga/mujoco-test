@@ -364,9 +364,14 @@ class ScriptedIK:
         return self.planner.report()
 
     def advance(self, phase):
+        # When closing/opening the Robotiq, freeze the Gen3 posture at its
+        # *current commanded* angles. Re-running multi-seed IK during release
+        # can switch to another 7D solution and sweep a finger into the wall.
+        held = (self.env.data.ctrl[self.env.action_ids][3:10].copy()
+                if phase in ("close", "open") else None)
         self.phase = phase
         self.entered = float(self.env.data.time)
-        self.arm_goal = None
+        self.arm_goal = held
         self.arm_path = []
         self.path_cursor = 0
         self.vertical_index = 0
