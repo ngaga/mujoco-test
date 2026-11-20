@@ -328,7 +328,8 @@ class CompatibleSmolVLA:
 class ScriptedIK:
     """Deterministic privileged-pose controller. Debug baseline only, not VLA."""
     phases = ("navigate_pick", "hover", "lower", "close", "lift",
-              "transit_retract", "navigate_bin", "preplace", "place", "open", "retract")
+              "transit_retract", "navigate_bin", "preplace", "place", "open", "retract",
+              "depart_bin")
 
     def __init__(self, env: HotelEnv, retries=1, planner="vertical", planner_timeout=2.5):
         from .collision_planner import MuJoCoCollisionChecker, JointMotionPlanner
@@ -472,7 +473,12 @@ class ScriptedIK:
                          ("hover", "lower", "close", "lift", "transit_retract")
                          else put_base)
             cmd[:3] = base_goal
-            if self.phase == "transit_retract":
+            if self.phase == "depart_bin":
+                # Leave the blue bin WITHOUT the carried cube. Move back
+                # behind its front wall before changing base translation.
+                goal = np.array([put_base[0] + .27, put_base[1],
+                                 COUNTER_Z + .145])
+            elif self.phase == "transit_retract":
                 # Fold the carried cube inward before crossing the rim.
                 goal = np.array([take_base[0] + .28, take_base[1],
                                  COUNTER_Z + .145])
@@ -493,7 +499,8 @@ class ScriptedIK:
                 else:
                     goal_z = BIN_BOTTOM_Z + .075
                 goal = np.array([BIN_XY[0], BIN_XY[1], goal_z])
-            delivery = self.phase in ("transit_retract", "preplace", "place", "retract")
+            delivery = self.phase in (
+                "transit_retract", "preplace", "place", "retract", "depart_bin")
             if self.arm_goal is None:
                 self.arm_goal = self.solve_ik(
                     goal, base_goal, avoid_bin=delivery,
@@ -526,11 +533,13 @@ class ScriptedIK:
                 cmd[3:10] = self.arm_goal
             distance = np.linalg.norm(env.data.qpos[self.env.arm_qadr] - self.arm_goal)
             path_finished = (not delivery or self.path_cursor >= len(self.arm_path))
-            if (self.phase in ("hover", "lift", "transit_retract", "preplace", "retract")
+            if (self.phase in ("hover", "lift", "transit_retract",
+                                   "preplace", "retract", "depart_bin")
                     and path_finished and distance < .15 and elapsed > .5):
                 next_phase = {"hover": "lower", "lift": "transit_retract",
                               "transit_retract": "navigate_bin",
-                              "preplace": "place", "retract": "done"}[self.phase]
+                              "preplace": "place", "retract": "done",
+                              "depart_bin": "navigate_pick"}[self.phase]
                 if self.phase == "retract" and self.vertical_index < 3:
                     self.vertical_index += 1
                     self.arm_goal = None
@@ -594,7 +603,8 @@ class ScriptedIK:
             if not self.done:
                 self.failure = "One or more earlier cubes left the bin"
         else:
-            self.advance("navigate_pick")
+            # Do not drive the base with the gripper still inside the bin.
+            self.advance("depart_bin")
         return cmd
 
 
