@@ -453,9 +453,9 @@ class ScriptedIK:
         # volume from the safe base standoff. 0.92m caused an IK/servo stall.
         carry_height = max(COUNTER_Z + .10, cube[2] + .11)
         # Countertop items are higher and near the edge of the Gen3's
-        # workspace. A smaller 48cm standoff avoids an extended, saturated
+        # workspace. A 53cm standoff balances reach with countertop collision clearance
         # hover while keeping the TidyBot chassis short of the vanity.
-        pick_standoff = .57 if cube[2] < .20 else .48
+        pick_standoff = .57 if cube[2] < .20 else .53
         take_base = np.array([cube[0] - pick_standoff, cube[1], 0.0])
         # The previous 57cm standoff left the TCP too far from bin center:
         # last baseline stopped before deposit. 51cm is still outside cabinet.
