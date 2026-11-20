@@ -328,7 +328,7 @@ class CompatibleSmolVLA:
 class ScriptedIK:
     """Deterministic privileged-pose controller. Debug baseline only, not VLA."""
     phases = ("navigate_pick", "hover", "lower", "close", "lift",
-              "navigate_bin", "preplace", "place", "open", "retract")
+              "transit_retract", "navigate_bin", "preplace", "place", "open", "retract")
 
     def __init__(self, env: HotelEnv, retries=1, planner="vertical", planner_timeout=2.5):
         from .collision_planner import MuJoCoCollisionChecker, JointMotionPlanner
@@ -456,7 +456,7 @@ class ScriptedIK:
         # last baseline stopped before deposit. 51cm is still outside cabinet.
         put_base = np.array([BIN_XY[0] - .51, BIN_XY[1], 0.0])
         cmd[-1] = CLOSE_GRIPPER if self.phase in (
-            "close", "lift", "navigate_bin", "preplace", "place") else OPEN_GRIPPER
+            "close", "lift", "transit_retract", "navigate_bin", "preplace", "place") else OPEN_GRIPPER
         if self.phase == "navigate_pick":
             cmd[:3] = take_base
             cmd[3:10] = self.home_arm
@@ -468,9 +468,15 @@ class ScriptedIK:
                 self.advance("preplace")
         else:
             # Keep base where it is; solve IK relative to physical current base pose.
-            base_goal = take_base if self.phase in ("hover", "lower", "close", "lift") else put_base
+            base_goal = (take_base if self.phase in
+                         ("hover", "lower", "close", "lift", "transit_retract")
+                         else put_base)
             cmd[:3] = base_goal
-            if self.phase in ("hover", "lower", "close", "lift"):
+            if self.phase == "transit_retract":
+                # Fold the carried cube inward before crossing the rim.
+                goal = np.array([take_base[0] + .32, take_base[1],
+                                 COUNTER_Z + .145])
+            elif self.phase in ("hover", "lower", "close", "lift"):
                 goal = np.array([cube[0], cube[1],
                                  cube[2] + (.14 if self.phase == "hover" else
                                             .026 if self.phase in ("lower", "close") else
@@ -487,11 +493,11 @@ class ScriptedIK:
                 else:
                     goal_z = BIN_BOTTOM_Z + .075
                 goal = np.array([BIN_XY[0], BIN_XY[1], goal_z])
-            delivery = self.phase in ("preplace", "place", "retract")
+            delivery = self.phase in ("transit_retract", "preplace", "place", "retract")
             if self.arm_goal is None:
                 self.arm_goal = self.solve_ik(
                     goal, base_goal, avoid_bin=delivery,
-                    carrying=self.phase in ("preplace", "place"))
+                    carrying=self.phase in ("transit_retract", "preplace", "place"))
                 if self.arm_goal is None:
                     self.failure = (f"Collision-free IK unreachable: cube={self.cube}, "
                                     f"phase={self.phase}, error={self.prev_ik_error:.3f}m")
@@ -501,7 +507,7 @@ class ScriptedIK:
                     try:
                         result = self.planner.plan(
                             env.data.qpos[self.env.arm_qadr], self.arm_goal,
-                            base_goal, carrying=self.phase in ("preplace", "place"),
+                            base_goal, carrying=self.phase in ("transit_retract", "preplace", "place"),
                             ignore_cube=self.cube)
                         self.arm_path = result.waypoints[1:]
                         self.path_cursor = 0
@@ -520,9 +526,10 @@ class ScriptedIK:
                 cmd[3:10] = self.arm_goal
             distance = np.linalg.norm(env.data.qpos[self.env.arm_qadr] - self.arm_goal)
             path_finished = (not delivery or self.path_cursor >= len(self.arm_path))
-            if (self.phase in ("hover", "lift", "preplace", "retract")
+            if (self.phase in ("hover", "lift", "transit_retract", "preplace", "retract")
                     and path_finished and distance < .15 and elapsed > .5):
-                next_phase = {"hover": "lower", "lift": "navigate_bin",
+                next_phase = {"hover": "lower", "lift": "transit_retract",
+                              "transit_retract": "navigate_bin",
                               "preplace": "place", "retract": "done"}[self.phase]
                 if self.phase == "retract" and self.vertical_index < 3:
                     self.vertical_index += 1
