@@ -329,7 +329,7 @@ class ScriptedIK:
     """Deterministic privileged-pose controller. Debug baseline only, not VLA."""
     phases = ("navigate_pick", "hover", "lower", "close", "lift",
               "transit_retract", "navigate_bin", "preplace", "place", "open", "retract",
-              "depart_bin")
+              "depart_bin", "clear_bin")
 
     def __init__(self, env: HotelEnv, retries=1, planner="vertical", planner_timeout=2.5):
         from .collision_planner import MuJoCoCollisionChecker, JointMotionPlanner
@@ -467,6 +467,15 @@ class ScriptedIK:
             cmd[3:10] = self.home_arm
             if np.linalg.norm(env.data.qpos[:2] - take_base[:2]) < .025 and elapsed > .5:
                 self.advance("hover")
+        elif self.phase == "clear_bin":
+            # Keep the folded, empty gripper static while the BASE first
+            # backs away from the bin. Switching to home arm at the rim
+            # previously scraped the blue south wall between pickups.
+            exit_base = np.array([put_base[0] - .22, BIN_XY[1] - .45, 0.0])
+            cmd[:3] = exit_base
+            if (np.linalg.norm(env.data.qpos[:2] - exit_base[:2]) < .03
+                    and elapsed > .5):
+                self.advance("navigate_pick")
         elif self.phase == "navigate_bin":
             cmd[:3] = put_base
             if np.linalg.norm(env.data.qpos[:2] - put_base[:2]) < .025 and elapsed > .5:
@@ -543,7 +552,7 @@ class ScriptedIK:
                 next_phase = {"hover": "lower", "lift": "transit_retract",
                               "transit_retract": "navigate_bin",
                               "preplace": "place", "retract": "done",
-                              "depart_bin": "navigate_pick"}[self.phase]
+                              "depart_bin": "clear_bin"}[self.phase]
                 if self.phase == "retract" and self.vertical_index < 3:
                     self.vertical_index += 1
                     self.arm_goal = None
