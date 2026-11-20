@@ -103,8 +103,9 @@ class MuJoCoCollisionChecker:
             return False
         # The env's native 7-DOF limits, including the 2/4/6 hardware bounds.
         from .hotel_vla import ARM_LOW, ARM_HIGH
-        if np.any(q < ARM_LOW - 1e-5) or np.any(q > ARM_HIGH + 1e-5):
-            self.last_blocker = "arm joint limits"
+        if np.any(q < ARM_LOW - .075) or np.any(q > ARM_HIGH + .075):
+            self.last_blocker = ("arm joint limits beyond 0.075 rad measured servo overshoot: "
+                                 + str(q.round(3).tolist()))
             return False
         self.data.qpos[:] = self.env.data.qpos
         self.data.qpos[:3] = base
@@ -243,8 +244,10 @@ class JointMotionPlanner:
         space = ob.RealVectorStateSpace(7)
         bounds = ob.RealVectorBounds(7)
         for i in range(7):
-            bounds.setLow(i, float(ARM_LOW[i]))
-            bounds.setHigh(i, float(ARM_HIGH[i]))
+            # Allow small physical position-servo overshoot of the actual qpos;
+            # output targets still clamp to the documented action bounds.
+            bounds.setLow(i, float(ARM_LOW[i] - .075))
+            bounds.setHigh(i, float(ARM_HIGH[i] + .075))
         space.setBounds(bounds)
         setup = og.SimpleSetup(space)
         def valid(state):
