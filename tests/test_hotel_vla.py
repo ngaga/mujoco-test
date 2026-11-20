@@ -31,11 +31,14 @@ class HotelTests(unittest.TestCase):
             xml_text=FAKE_FULL,
             assets={"base/body.stl": Path("/tmp/verified_tidybot_body.stl")}))
 
-    def test_three_cubes_one_floor_two_on_counter(self):
+    def test_three_cubes_initially_on_counter(self):
         self.assertEqual(CUBES, 3)
-        self.assertLess(SPAWNS[0][0][2], .025)
+        self.assertGreater(SPAWNS[0][0][2], COUNTER_Z)
         self.assertGreater(SPAWNS[1][0][2], COUNTER_Z)
         self.assertGreater(SPAWNS[2][0][2], COUNTER_Z)
+        ys = [xyz[1] for xyz, _ in SPAWNS]
+        self.assertGreater(min(abs(a-b) for i,a in enumerate(ys)
+                               for b in ys[i+1:]), .20)
         for i in range(CUBES):
             body = self.root.find(f"./worldbody/body[@name='hotel_red_{i}']")
             self.assertIsNotNone(body)
