@@ -8,6 +8,8 @@ on:
       - 'mobile_demo/HOTEL_VLA.md'
       - 'tests/test_collision_planner.py'
       - 'tests/test_hotel_vla.py'
+      - 'tests/test_hotel_recovery.py'
+      - 'mobile_demo/hotel_recovery.py'
       - '.github/workflows/hotel-rrtconnect.yml'
   workflow_dispatch:
 
@@ -34,9 +36,10 @@ jobs:
           python -m pip install -r requirements.txt "ompl==2.0.1"
       - name: Compile and validate planner API (including true OMPL detour)
         run: |
-          python -m compileall -q mobile_demo/hotel_vla.py mobile_demo/collision_planner.py tests/test_collision_planner.py
+          python -m compileall -q mobile_demo/hotel_vla.py mobile_demo/collision_planner.py mobile_demo/hotel_recovery.py tests/test_collision_planner.py tests/test_hotel_recovery.py
           python -m unittest discover -s tests -p 'test_hotel_vla.py' -v
           python -m unittest discover -s tests -p 'test_collision_planner.py' -v
+          python -m unittest discover -s tests -p 'test_hotel_recovery.py' -v
       - name: Fetch pinned Stanford meshes and compile Kinova/Robotiq bathroom
         run: |
           python -m mobile_demo.tidybot_full --fetch
@@ -48,6 +51,24 @@ jobs:
           python -m mobile_demo.hotel_vla --policy scripted --planner ompl \
             --planner-timeout 2.5 --max-steps 3500 \
             --output mobile_runs/hotel_ompl.json
+      - name: Force one actual gripper release and measure retry behavior
+        run: |
+          python -m mobile_demo.hotel_vla --policy scripted --planner ompl \
+            --inject-drop-once --max-steps 4000 --retries -1 \
+            --output mobile_runs/hotel_injected_drop.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r = json.loads(Path('mobile_runs/hotel_injected_drop.json').read_text())
+          print('Drop injected=', r['injected_gripper_drop'],
+                'Retry events=', r['recovery']['retries'],
+                'Delivered=', r['delivered'], '/3', 'Failure=', r['failure'])
+          assert r['cubes'] == 3
+          assert not r['vla_inference_executed']
+          assert r['injected_gripper_drop'], 'Fault test must physically open the gripper'
+          assert r['recovery']['retries'] > 0, 'Injected drop must trigger a new attempt'
+          assert r['recovery']['retry_events'], 'No physical retry events reported'
+          PY
       - name: Strict report of collision prevention and three-cube outcome
         run: |
           python - <<'PY'
