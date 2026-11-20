@@ -452,7 +452,11 @@ class ScriptedIK:
         # Clearance must exceed the vanity but remain inside Gen3's reachable
         # volume from the safe base standoff. 0.92m caused an IK/servo stall.
         carry_height = max(COUNTER_Z + .10, cube[2] + .11)
-        take_base = np.array([cube[0] - .57, cube[1], 0.0])
+        # Countertop items are higher and near the edge of the Gen3's
+        # workspace. A smaller 48cm standoff avoids an extended, saturated
+        # hover while keeping the TidyBot chassis short of the vanity.
+        pick_standoff = .57 if cube[2] < .20 else .48
+        take_base = np.array([cube[0] - pick_standoff, cube[1], 0.0])
         # The previous 57cm standoff left the TCP too far from bin center:
         # last baseline stopped before deposit. 51cm is still outside cabinet.
         put_base = np.array([BIN_XY[0] - .495, BIN_XY[1], 0.0])
@@ -692,7 +696,14 @@ def run(args):
               "script_retries": script.retries if script else None,
               "script_last_ik_error": script.prev_ik_error if script else None,
               "planner": script.planner_report() if script else None,
-              "planner_errors": script.planner_errors if script else None}
+              "planner_errors": script.planner_errors if script else None,
+              "last_arm_q": env.data.qpos[env.arm_qadr].round(4).tolist(),
+              "last_arm_target": (script.arm_goal.round(4).tolist()
+                                  if script and script.arm_goal is not None else None),
+              "last_arm_joint_error_rad": (
+                  round(float(np.linalg.norm(
+                      env.data.qpos[env.arm_qadr] - script.arm_goal)), 4)
+                  if script and script.arm_goal is not None else None)}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(result, indent=2), flush=True)
