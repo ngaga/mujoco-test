@@ -5,7 +5,7 @@ Run from the repository root after PR #32 has been merged:
 ```bash
 python -m mobile_demo.tidybot_full --fetch
 mjpython -m mobile_demo.hotel_vla --check-model
-mjpython -m mobile_demo.hotel_vla --policy scripted --viewer --max-steps 3500 --require-success
+mjpython -m mobile_demo.hotel_vla --policy scripted --planner vertical --viewer --max-steps 3500
 # Viewer at http://127.0.0.1:8080
 ```
 
@@ -76,3 +76,58 @@ mjpython -m mobile_demo.hotel_vla --policy scripted --max-steps 3500 \
 Success is defined only if **all three cube centers are physically inside
 the bin and their velocities are low**, after the controller has released
 them. A failed smoke run must not be described as solved.
+
+## Collision-checked hotel bin depositing (OMPL RRTConnect)
+
+This follow-up adds two comparable modes to the same physical three-cube
+scene. Both use **privileged** simulated object poses and a DLS IK teacher,
+**not** a pretrained VLA. Existing SmolVLA inference action conventions
+remain unchanged.
+
+```bash
+# OMPL Python wheel (not part of the previous install; supported platform required)
+python -m pip install "ompl==2.0.1"
+
+# Both modes produce detailed JSON measurements, no `--require-success`
+mjpython -m mobile_demo.hotel_vla --policy scripted --planner vertical \
+  --max-steps 3500 --output mobile_runs/hotel_vertical.json --viewer
+mjpython -m mobile_demo.hotel_vla --policy scripted --planner ompl \
+  --max-steps 3500 --planner-timeout 2.5 \
+  --output mobile_runs/hotel_ompl.json --viewer
+
+# Strict 3/3 benchmark; command exits nonzero for a failure:
+mjpython -m mobile_demo.hotel_vla --policy scripted --planner ompl \
+  --max-steps 3500 --no-hold-viewer --require-success
+```
+
+**What is planned:** seven actual Kinova joints (not merely a TCP A* search).
+The controller first solves a downward-facing TCP IK pose at the center
+of the bin, then checks the **entire arm plus a non-contact 24mm carried-cube
+proxy** against MuJoCo hotel-bin walls, countertop, basin, cabinet and other
+physical cubes. OMPL uses RRTConnect when a direct path is not collision-free.
+Every returned segment is independently sampled at intervals of at most
+0.045 rad/joint for another MuJoCo geometry-distance check. There is **no
+fallback to an unchecked motion** when the planner fails.
+
+The 7D planner holds the base at a fixed pose. The base still moves with
+MuJoCo's existing position servos during navigation (not part of the OMPL
+search). The pickup sequence is still scripted. The last place/retract
+segments are divided into four Cartesian-height waypoints over the open bin
+and certified against all arm/obstacle geometry, rather than letting the
+joint solver take one large blind step through the rim.
+
+**What gets measured:** the JSON report includes
+`planner.mode`, `plans_succeeded`, `rrt_calls`, `rrt_solutions`,
+`rejections`, `plan_methods`, `waypoints_generated`,
+`bin_arm_contact_physics_steps`, `worst_bin_contact_penetration_m`,
+`contact_examples`, and the real cube-in-bin + settled `success` result.
+A collided arm in OMPL mode ends the rollout as an explicit failure.
+
+`ompl==2.0.1` offers Python wheels for CPython 3.12 and macOS 15+ Apple
+Silicon. Older macOS/Python installations may need a supported environment
+or a locally built OMPL binding. `--planner vertical` remains available
+without OMPL.
+
+These clearances and ideal position-controlled base are **simulation-only**,
+not proven safe around people. A successful plan alone does not count as
+a successful grasp or physical cube release.
