@@ -9,9 +9,8 @@ mjpython -m mobile_demo.hotel_vla --policy scripted --planner vertical --viewer 
 # Viewer at http://127.0.0.1:8080
 ```
 
-Scene: **one red 24 mm cube on the floor**, **two red 24 mm cubes at different
-orientations on the hotel vanity**, an actual recessed sink, and a **blue open bin
-on the countertop**. Everything is MuJoCo contact-physical, with three free
+Scene: **three red 24 mm cubes on the hotel vanity** with different orientations,
+an actual recessed sink, and a **blue open bin on the countertop**. Everything is MuJoCo contact-physical, with three free
 joints. The official TidyBot 2023 model has the 7-DoF Kinova Gen3, Robotiq
 2F-85, wrist camera, real links and collision meshes. The native low base
 camera cannot see the elevated counter, so an elevated front camera and
@@ -131,3 +130,41 @@ without OMPL.
 These clearances and ideal position-controlled base are **simulation-only**,
 not proven safe around people. A successful plan alone does not count as
 a successful grasp or physical cube release.
+
+
+## Persistent recovery: all three cubes start on the vanity
+
+The default scripted teacher now **keeps the episode running after failed grasps,
+missed deposits, dropped cubes, unreachable IK, arm/bin contact interruptions
+and RRTConnect planning rejections**. It reads the object's CURRENT MuJoCo
+world pose on every new attempt, so a block knocked onto the floor stays on
+the floor and can be approached there. We do not reset the scene or fake a
+successful grasp. The helper `mobile_demo/hotel_recovery.py` records every
+failed attempt and retries the same item once before rotating to another
+undelivered cube. Delivered cubes are excluded from new picks.
+
+Default `--retries -1` removes the old one-retry-per-cube cutoff, **but not
+the global episode time limit**. `--max-steps 6000` (default) caps simulation
+steps, and the report explicitly records missing cubes and a timeout instead
+of claiming success. Use a finite number such as `--retries 8` if desired.
+Some locations after a drop (e.g. under the vanity) may still be unreachable.
+
+```bash
+# Pull latest main after merge, with OMPL in the same Python environment
+python -m pip install 'ompl==2.0.1'
+python -m mobile_demo.tidybot_full --fetch
+mjpython -m mobile_demo.hotel_vla --policy scripted --planner ompl \\
+  --retries -1 --max-steps 6000 --viewer \\
+  --output mobile_runs/hotel_retry.json
+
+# Deliberately open the physical Robotiq during first transport, once:
+mjpython -m mobile_demo.hotel_vla --policy scripted --planner ompl \\
+  --inject-drop-once --retries -1 --max-steps 6000 \\
+  --output mobile_runs/hotel_forced_drop.json
+```
+
+Read `recovery.retry_events`, `recovery.attempts_per_cube`,
+`recovery.undelivered_cubes`, `injected_gripper_drop`, and `failure`
+in the JSON. The actual physical cube-in-bin measurements still determine
+`delivered` and `success`. The scripted teacher retains privileged poses;
+this is **not** autonomous visual perception or a trained VLA.
