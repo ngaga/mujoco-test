@@ -254,7 +254,9 @@ class JointMotionPlanner:
         setup.setStateValidityChecker(valid)
         # Small enough OMPL subdivisions to reject narrow bin-wall crossings.
         setup.getSpaceInformation().setStateValidityCheckingResolution(0.0015)
-        a, b = ob.State(space), ob.State(space)
+        # OMPL 2.0.1 nanobind: ob.State(space) has no Python constructor.
+        # Allocate native states through the StateSpace instead.
+        a, b = space.allocState(), space.allocState()
         for i in range(7):
             a[i] = float(start[i])
             b[i] = float(target[i])
