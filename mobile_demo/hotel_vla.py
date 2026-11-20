@@ -152,6 +152,16 @@ def compose_hotel_xml(*, xml_text=None, assets=None):
                     (bx + dx, by + dy, COUNTER_Z + .077), (sx, sy, .063),
                     "0.04 0.19 0.78 1")
 
+    # Zero-mass/zero-contact cargo proxy, used ONLY by the planner to check
+    # swept clearance of a held 24mm cube. Real cube remains freejoint physics.
+    bracelet = root.find(".//body[@name='bracelet_link']")
+    if bracelet is None:
+        raise ValueError("Official Kinova bracelet_link missing")
+    _add(bracelet, "geom", name="hotel_cargo_clearance_proxy", type="box",
+         pos="0 0 -0.195", size=f"{CUBE_HALF} {CUBE_HALF} {CUBE_HALF}",
+         mass="0", contype="0", conaffinity="0", group="4",
+         rgba="0.95 0.08 0.07 0")
+
     # Cube free-joints must be added to *all* official keyframes, otherwise
     # mj_resetDataKeyframe sees a dimension mismatch or invalid cube quats.
     key_suffix = []
@@ -208,6 +218,8 @@ class HotelEnv:
         self.arm_vadr = np.array([int(self.model.jnt_dofadr[self.model.joint(n).id])
                                        for n in ARM_NAMES], dtype=int)
         self.site_id = self.model.site("pinch_site").id
+        self.contact_monitor = None
+        self.monitor_phase = "inactive"
         self.reset()
 
     def reset(self):
@@ -261,6 +273,8 @@ class HotelEnv:
             self.data.ctrl[ids] = previous + np.clip(
                 target - previous, -MAX_TARGET_RATE * dt, MAX_TARGET_RATE * dt)
             mujoco.mj_step(self.model, self.data)
+            if self.contact_monitor is not None:
+                self.contact_monitor.record_contacts(self.data, phase=self.monitor_phase)
         return self.state()
 
 
@@ -316,7 +330,16 @@ class ScriptedIK:
     phases = ("navigate_pick", "hover", "lower", "close", "lift",
               "navigate_bin", "preplace", "place", "open", "retract")
 
-    def __init__(self, env: HotelEnv, retries=1):
+    def __init__(self, env: HotelEnv, retries=1, planner="vertical", planner_timeout=2.5):
+        from .collision_planner import MuJoCoCollisionChecker, JointMotionPlanner
+        self.checker = MuJoCoCollisionChecker(env)
+        self.planner = JointMotionPlanner(self.checker, mode=planner, timeout=planner_timeout)
+        self.planner_mode = planner
+        env.contact_monitor = self.checker
+        self.arm_path = []
+        self.path_cursor = 0
+        self.vertical_index = 0
+        self.planner_errors = []
         self.env = env
         self.model = env.model
         self.work = mujoco.MjData(self.model)
@@ -336,52 +359,79 @@ class ScriptedIK:
         self.settling_since = None
         self._last_clamp_phase = None
 
+    def planner_report(self):
+        return self.planner.report()
+
     def advance(self, phase):
         self.phase = phase
         self.entered = float(self.env.data.time)
         self.arm_goal = None
+        self.arm_path = []
+        self.path_cursor = 0
+        self.vertical_index = 0
         self.settling_since = None
 
-    def solve_ik(self, xyz, base_goal):
-        """Numerical 6D site IK on a copy of MuJoCo state, no teleport in live env."""
+    def solve_ik(self, xyz, base_goal, *, avoid_bin=False, carrying=False):
+        """Damped-least-squares 6D IK, then collision-filter candidate solutions.
+
+        For delivery, DO NOT accept an IK answer solely because TCP is close.
+        Another joint configuration may reach the same TCP without hitting bin.
+        """
         model, data = self.model, self.work
         site_id = self.env.site_id
-        desired = np.diag([1.0, -1.0, -1.0])  # gripper pointing downward
+        desired = np.diag([1.0, -1.0, -1.0])
         best_error, best = math.inf, None
+        best_safe_error, best_safe = math.inf, None
         current = self.env.data.qpos[self.env.arm_qadr]
         for seed in (current, self.home_arm,
                      np.array([0, .8, 2.3, -1.8, 0, .7, 0]),
-                     np.array([0, -.8, 2.3, -1.8, 0, -.7, 0])):
+                     np.array([0, -.8, 2.3, -1.8, 0, -.7, 0]),
+                     np.array([.3, -.5, 1.3, -1.2, .25, .2, 0])):
             data.qpos[:] = self.env.data.qpos
             data.qvel[:] = 0
             data.qpos[:3] = base_goal
             data.qpos[self.env.arm_qadr] = np.clip(seed, ARM_LOW, ARM_HIGH)
-            for _ in range(95):
+            seed_error, seed_best = math.inf, None
+            for _ in range(110):
                 mujoco.mj_forward(model, data)
                 site = data.site(site_id)
                 pos_err = np.asarray(xyz) - site.xpos
                 rotation = np.asarray(site.xmat).reshape(3, 3)
-                rot_err = 0.5 * sum(
+                rot_err = .5 * sum(
                     (np.cross(rotation[:, i], desired[:, i]) for i in range(3)),
                     np.zeros(3))
                 err = np.r_[pos_err, rot_err * .38]
                 score = float(np.linalg.norm(pos_err) + .12 * np.linalg.norm(rot_err))
-                if score < best_error:
-                    best_error = score
-                    best = data.qpos[self.env.arm_qadr].copy()
+                if score < seed_error:
+                    seed_error = score
+                    seed_best = data.qpos[self.env.arm_qadr].copy()
                 if np.linalg.norm(pos_err) < .006 and np.linalg.norm(rot_err) < .09:
                     break
                 jacp = np.zeros((3, model.nv))
                 jacr = np.zeros((3, model.nv))
                 mujoco.mj_jacSite(model, data, jacp, jacr, site_id)
-                j = np.vstack([jacp[:, self.env.arm_vadr], .38 * jacr[:, self.env.arm_vadr]])
-                # Damped least squares; bounded step and hard joint limits.
+                j = np.vstack([jacp[:, self.env.arm_vadr],
+                               .38 * jacr[:, self.env.arm_vadr]])
                 dq = j.T @ np.linalg.solve(j @ j.T + .035**2 * np.eye(6), err)
                 data.qpos[self.env.arm_qadr] = np.clip(
                     data.qpos[self.env.arm_qadr] + np.clip(dq, -.13, .13),
                     ARM_LOW, ARM_HIGH)
-            if best_error < .019:
+            if seed_best is not None and seed_error < best_error:
+                best_error, best = seed_error, seed_best
+            if avoid_bin and seed_best is not None and seed_error < .09:
+                if self.checker.valid(seed_best, base_goal, carrying=carrying,
+                                      ignore_cube=self.cube):
+                    if seed_error < best_safe_error:
+                        best_safe_error, best_safe = seed_error, seed_best
+            if not avoid_bin and best_error < .019:
                 break
+            if avoid_bin and best_safe_error < .019:
+                break
+        if avoid_bin:
+            self.prev_ik_error = best_safe_error if best_safe is not None else best_error
+            if best_safe is None or best_safe_error > .06:
+                return None
+            return best_safe
         self.prev_ik_error = best_error
         if best is None or best_error > .09:
             return None
@@ -402,7 +452,9 @@ class ScriptedIK:
         # volume from the safe base standoff. 0.92m caused an IK/servo stall.
         carry_height = max(COUNTER_Z + .10, cube[2] + .11)
         take_base = np.array([cube[0] - .57, cube[1], 0.0])
-        put_base = np.array([BIN_XY[0] - .57, BIN_XY[1], 0.0])
+        # The previous 57cm standoff left the TCP too far from bin center:
+        # last baseline stopped before deposit. 51cm is still outside cabinet.
+        put_base = np.array([BIN_XY[0] - .51, BIN_XY[1], 0.0])
         cmd[-1] = CLOSE_GRIPPER if self.phase in (
             "close", "lift", "navigate_bin", "preplace", "place") else OPEN_GRIPPER
         if self.phase == "navigate_pick":
@@ -424,18 +476,52 @@ class ScriptedIK:
                                             .026 if self.phase in ("lower", "close") else
                                             carry_height - cube[2])])
             else:
-                goal = np.array([BIN_XY[0], BIN_XY[1],
-                                 BIN_BOTTOM_Z + (.13 if self.phase in ("preplace", "retract")
-                                                 else .075)])
+                # For the final place/retract, enforce multiple Cartesian Z
+                # waypoints at fixed bin center; check/planning every joint edge.
+                if self.phase == "preplace":
+                    goal_z = BIN_BOTTOM_Z + .15
+                elif self.phase == "place":
+                    goal_z = BIN_BOTTOM_Z + .15 - (self.vertical_index + 1) * (.075 / 4)
+                elif self.phase == "retract":
+                    goal_z = BIN_BOTTOM_Z + .075 + (self.vertical_index + 1) * (.075 / 4)
+                else:
+                    goal_z = BIN_BOTTOM_Z + .075
+                goal = np.array([BIN_XY[0], BIN_XY[1], goal_z])
+            delivery = self.phase in ("preplace", "place", "retract")
             if self.arm_goal is None:
-                self.arm_goal = self.solve_ik(goal, base_goal)
+                self.arm_goal = self.solve_ik(
+                    goal, base_goal, avoid_bin=delivery,
+                    carrying=self.phase in ("preplace", "place"))
                 if self.arm_goal is None:
-                    self.failure = (f"IK unreachable: cube={self.cube}, phase={self.phase}, "
-                                    f"error={self.prev_ik_error:.3f}m")
+                    self.failure = (f"Collision-free IK unreachable: cube={self.cube}, "
+                                    f"phase={self.phase}, error={self.prev_ik_error:.3f}m")
                     return cmd
-            cmd[3:10] = self.arm_goal
+                if delivery:
+                    from .collision_planner import PlanningError
+                    try:
+                        result = self.planner.plan(
+                            env.data.qpos[self.env.arm_qadr], self.arm_goal,
+                            base_goal, carrying=self.phase in ("preplace", "place"),
+                            ignore_cube=self.cube)
+                        self.arm_path = result.waypoints[1:]
+                        self.path_cursor = 0
+                    except PlanningError as exc:
+                        self.failure = (f"Collision planner refused {self.phase} "
+                                        f"cube {self.cube}: {exc}")
+                        self.planner_errors.append(self.failure)
+                        return cmd
+            if delivery and self.arm_path:
+                actual = env.data.qpos[self.env.arm_qadr]
+                while (self.path_cursor < len(self.arm_path) and
+                       np.max(np.abs(actual - self.arm_path[self.path_cursor])) < .065):
+                    self.path_cursor += 1
+                cmd[3:10] = self.arm_path[min(self.path_cursor, len(self.arm_path) - 1)]
+            else:
+                cmd[3:10] = self.arm_goal
             distance = np.linalg.norm(env.data.qpos[self.env.arm_qadr] - self.arm_goal)
-            if self.phase in ("hover", "lift", "preplace", "retract") and distance < .15 and elapsed > .5:
+            path_finished = (not delivery or self.path_cursor >= len(self.arm_path))
+            if (self.phase in ("hover", "lift", "preplace", "retract")
+                    and path_finished and distance < .15 and elapsed > .5):
                 next_phase = {"hover": "lower", "lift": "navigate_bin",
                               "preplace": "place", "retract": "done"}[self.phase]
                 if next_phase == "done":
@@ -457,14 +543,26 @@ class ScriptedIK:
                                     self.advance("navigate_pick")
                                 else:
                                     self.failure = f"Cube {self.cube} did not settle inside bin"
+                elif self.phase == "retract" and self.vertical_index < 3:
+                    self.vertical_index += 1
+                    self.arm_goal = None
+                    self.arm_path = []
+                    self.path_cursor = 0
                 else:
                     self.advance(next_phase)
             elif self.phase == "lower" and distance < .10 and elapsed > .7:
                 self.advance("close")
             elif self.phase == "close" and elapsed > 1.15:
                 self.advance("lift")
-            elif self.phase == "place" and distance < .10 and elapsed > .7:
-                self.advance("open")
+            elif (self.phase == "place" and path_finished and
+                  distance < .10 and elapsed > .15):
+                if self.vertical_index < 3:
+                    self.vertical_index += 1
+                    self.arm_goal = None
+                    self.arm_path = []
+                    self.path_cursor = 0
+                else:
+                    self.advance("open")
             elif self.phase == "open" and elapsed > .9:
                 self.advance("retract")
         if elapsed > 22.0:
@@ -495,7 +593,9 @@ class ScriptedIK:
 
 def run(args):
     env = HotelEnv()
-    script = ScriptedIK(env, args.retries) if args.policy == "scripted" else None
+    script = (ScriptedIK(env, args.retries, planner=args.planner,
+                        planner_timeout=args.planner_timeout)
+              if args.policy == "scripted" else None)
     model_policy = (CompatibleSmolVLA(args.checkpoint, args.device)
                     if args.policy == "smolvla" else None)
     renderers = ({camera: mujoco.Renderer(env.model, width=224, height=224)
@@ -518,7 +618,13 @@ def run(args):
                     break
                 try:
                     action = (script.command() if script else model_policy.action(env, renderers))
+                    env.monitor_phase = script.phase if script else "VLA"
+                    contacts_before = script.checker.contacts if script else 0
                     env.step(action)
+                    if (script and args.planner == "ompl" and
+                            script.checker.contacts > contacts_before):
+                        raise RuntimeError("Physical arm/bin collision detected: "
+                                           + str(script.checker.contact_examples[-1]))
                 except (ValueError, RuntimeError, np.linalg.LinAlgError) as exc:
                     error = f"Controller error: {type(exc).__name__}: {exc}"
                     print(error, flush=True)
@@ -567,7 +673,9 @@ def run(args):
               "steps": frames, "final_cube_xyz": [env.cube_pos(i).round(4).tolist()
                                                      for i in range(CUBES)],
               "script_retries": script.retries if script else None,
-              "script_last_ik_error": script.prev_ik_error if script else None}
+              "script_last_ik_error": script.prev_ik_error if script else None,
+              "planner": script.planner_report() if script else None,
+              "planner_errors": script.planner_errors if script else None}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(result, indent=2), flush=True)
@@ -584,12 +692,18 @@ def main(argv=None):
     parser.add_argument("--device", choices=("cpu", "mps", "cuda"), default="cpu")
     parser.add_argument("--max-steps", type=int, default=3500)
     parser.add_argument("--retries", type=int, default=1)
+    parser.add_argument("--planner", choices=("vertical", "ompl"), default="vertical",
+                        help="Vertical Cartesian deposit with checked direct arm moves, or OMPL RRTConnect")
+    parser.add_argument("--planner-timeout", type=float, default=2.5,
+                        help="Wall-clock seconds allowed for each RRTConnect query")
     parser.add_argument("--viewer", action="store_true")
     parser.add_argument("--viewer-port", type=int, default=8080)
     parser.add_argument("--no-hold-viewer", dest="hold_viewer", action="store_false")
     parser.add_argument("--require-success", action="store_true")
     parser.add_argument("--output", type=Path, default=Path("mobile_runs/hotel_vla.json"))
     args = parser.parse_args(argv)
+    if args.planner_timeout <= 0:
+        parser.error("--planner-timeout must be positive")
     if args.max_steps < 1 or args.retries < 0:
         parser.error("--max-steps must be positive; --retries must be nonnegative")
     if args.policy == "smolvla" and not args.checkpoint:
