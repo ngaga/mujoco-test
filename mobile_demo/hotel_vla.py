@@ -1,7 +1,7 @@
 """Hotel bathroom pick-place experiment with official Stanford TidyBot (Kinova/2F85).
 
-Three *physical* red cubes: one on the floor and two scattered on the
-countertop. The blue bin is on the countertop. Nothing is welded/teleported.
+Three *physical* red cubes, initially scattered on the countertop.
+If dropped, they stay where physics leaves them and the teacher can retry. The blue bin is on the countertop. Nothing is welded/teleported.
 
 Policies:
   scripted: privileged MuJoCo-pose + numerical IK engineering baseline, NOT VLA.
@@ -52,9 +52,9 @@ ACTION_HIGH = np.r_[[0.30, 1.05, math.pi], ARM_HIGH, [255.0]]
 MAX_TARGET_RATE = np.r_[[0.16, 0.16, 0.65], np.full(7, 0.85), [420.0]]
 # All three spawns are explicit, orientations intentionally differ.
 SPAWNS = (
-    ((0.29, -0.62, 0.0125), (0.9950, 0.0, 0.0, 0.0998)),  # floor, rotated
-    ((0.695, -0.195, COUNTER_Z + 0.018), (0.9886, 0.095, 0.025, 0.108)),
-    ((0.687, 0.205, COUNTER_Z + 0.018), (0.963, -0.038, 0.070, -0.256)),
+    ((0.701, -0.335, COUNTER_Z + 0.018), (0.9950, 0.0, 0.0, 0.0998)),
+    ((0.695, -0.050, COUNTER_Z + 0.018), (0.9886, 0.095, 0.025, 0.108)),
+    ((0.687, 0.235, COUNTER_Z + 0.018), (0.963, -0.038, 0.070, -0.256)),
 )
 
 
@@ -329,10 +329,12 @@ class ScriptedIK:
     """Deterministic privileged-pose controller. Debug baseline only, not VLA."""
     phases = ("navigate_pick", "hover", "lower", "close", "lift",
               "transit_retract", "navigate_bin", "preplace", "place", "open", "retract",
-              "depart_bin", "clear_bin")
+              "depart_bin", "clear_bin", "recover_release", "recover_backoff", "recover_home")
 
-    def __init__(self, env: HotelEnv, retries=1, planner="vertical", planner_timeout=2.5):
+    def __init__(self, env: HotelEnv, retries=-1, planner="vertical", planner_timeout=2.5):
         from .collision_planner import MuJoCoCollisionChecker, JointMotionPlanner
+        from .hotel_recovery import RetryScheduler
+        self.scheduler = RetryScheduler(CUBES, max_retries=retries)
         self.checker = MuJoCoCollisionChecker(env)
         self.planner = JointMotionPlanner(self.checker, mode=planner, timeout=planner_timeout)
         self.planner_mode = planner
@@ -351,7 +353,9 @@ class ScriptedIK:
         self.max_retries = retries
         self.failure = None
         self.done = False
-        self.attempts = [0] * CUBES
+        self.attempts = self.scheduler.attempts
+        self.recovery_base = None
+        self.recovery_arm = None
         self.base_goal = None
         self.arm_goal = None
         self.prev_ik_error = None
@@ -362,6 +366,87 @@ class ScriptedIK:
 
     def planner_report(self):
         return self.planner.report()
+
+    def retry_report(self):
+        return self.scheduler.report(self.env.placed)
+
+    def recover(self, reason):
+        """Abort this attempt, keep physical object where it fell, resume work.
+
+        No simulator reset, no manual cube position change, no welded cargo.
+        After repeated misses on one cube, rotate to another undelivered cube.
+        This is privileged oracle supervision, not learned VLA recovery.
+        """
+        if self.done or self.failure or self.phase.startswith("recover_"):
+            return
+        old_cube = self.cube
+        event = self.scheduler.failed(old_cube, reason,
+                                      self.env.cube_pos(old_cube),
+                                      self.env.data.time, self.phase)
+        self.retries += 1
+        # Retry the same cube on the first miss; alternate afterwards.
+        rotate = event["attempt"] % 2 == 0
+        next_cube = self.scheduler.choose(self.env.placed,
+                                          current=old_cube, rotate=rotate)
+        if next_cube is None:
+            self.failure = ("No recoverable cubes left under retry budget: " + reason
+                            if self.env.count_placed() != CUBES else None)
+            self.done = self.env.count_placed() == CUBES
+            return
+        self.cube = next_cube
+        self.recovery_arm = self.env.data.ctrl[self.env.action_ids][3:10].copy()
+        current_base = self.env.data.qpos[:3].copy()
+        self.recovery_base = current_base.copy()
+        # Back away from the tabletop / bin before trying a new arm pose.
+        self.recovery_base[0] = max(ACTION_LOW[0] + .05, current_base[0] - .24)
+        self.advance("recover_release")
+        print(f"Recovery {self.retries}: {event['reason']} at {event['cube_xyz']}; "
+              f"retry cube {self.cube}, bin={self.env.count_placed()}/{CUBES}",
+              flush=True)
+
+    def after_step(self):
+        """Detect real drops from world poses, never from intended gripper motion."""
+        if self.failure or self.done or self.phase.startswith("recover_"):
+            return
+        if self.phase not in ("lift", "transit_retract", "navigate_bin", "preplace"):
+            return
+        if self.env.placed(self.cube):
+            return
+        if self.env.data.time - self.entered < .55:
+            return
+        tcp = self.env.data.site(self.env.site_id).xpos
+        xyz = self.env.cube_pos(self.cube)
+        distance = float(np.linalg.norm(xyz - tcp))
+        # Conservative threshold: a held 24mm cube sits near pinch_site.
+        # If it falls on the floor, the distance quickly grows as arm moves.
+        if distance > .18:
+            self.recover(f"Cube {self.cube} lost from gripper "
+                         f"(distance={distance:.3f}m)")
+
+    def recovery_command(self, cmd, elapsed):
+        """Open, back off with static arm, then stow before starting next pick."""
+        cmd[-1] = OPEN_GRIPPER
+        if self.phase == "recover_release":
+            cmd[3:10] = self.recovery_arm
+            if elapsed > .75:
+                self.advance("recover_backoff")
+        elif self.phase == "recover_backoff":
+            cmd[:3] = self.recovery_base
+            cmd[3:10] = self.recovery_arm
+            if (np.linalg.norm(self.env.data.qpos[:2] -
+                               self.recovery_base[:2]) < .035 or elapsed > 6):
+                self.advance("recover_home")
+        elif self.phase == "recover_home":
+            cmd[:3] = self.recovery_base
+            cmd[3:10] = self.home_arm
+            err = float(np.max(np.abs(self.env.data.qpos[self.env.arm_qadr] -
+                                      self.home_arm)))
+            if err < .16 and elapsed > .3:
+                self.advance("navigate_pick")
+            elif elapsed > 12:
+                # Do not remain stuck forever; log a new retry of this cube.
+                self.advance("navigate_pick")
+        return validate_action(np.clip(cmd, ACTION_LOW, ACTION_HIGH))
 
     def advance(self, phase):
         # During Robotiq OPENING, freeze the Gen3 posture at its
@@ -450,6 +535,8 @@ class ScriptedIK:
         cmd = env.data.ctrl[self.env.action_ids].copy()
         if self.done or self.failure:
             return cmd
+        if self.phase.startswith("recover_"):
+            return self.recovery_command(cmd, elapsed)
         # Scripted mode MAY inspect all cube world poses. The VLA NEVER does.
         if env.placed(self.cube) and self.phase in ("navigate_pick", "hover"):
             return self.next_cube(cmd)
@@ -461,6 +548,9 @@ class ScriptedIK:
         # workspace. A 53cm standoff balances reach with countertop collision clearance
         # hover while keeping the TidyBot chassis short of the vanity.
         pick_standoff = .57 if cube[2] < .20 else .53
+        # Try slightly different safe reach when a pose repeatedly fails.
+        variants = (0.0, .04, -.035, .065, -.055)
+        pick_standoff += variants[self.attempts[self.cube] % len(variants)]
         take_base = np.array([cube[0] - pick_standoff, cube[1], 0.0])
         # The previous 57cm standoff left the TCP too far from bin center:
         # last baseline stopped before deposit. 51cm is still outside cabinet.
@@ -527,9 +617,9 @@ class ScriptedIK:
                     goal, base_goal, avoid_bin=delivery,
                     carrying=self.phase in ("transit_retract", "preplace", "place"))
                 if self.arm_goal is None:
-                    self.failure = (f"Collision-free IK unreachable: cube={self.cube}, "
-                                    f"phase={self.phase}, error={self.prev_ik_error:.3f}m")
-                    return cmd
+                    self.recover(f"IK unreachable in {self.phase}, "
+                                 f"error={self.prev_ik_error:.3f}m")
+                    return self.recovery_command(cmd, 0.0)
                 if delivery:
                     from .collision_planner import PlanningError
                     try:
@@ -540,10 +630,10 @@ class ScriptedIK:
                         self.arm_path = result.waypoints[1:]
                         self.path_cursor = 0
                     except PlanningError as exc:
-                        self.failure = (f"Collision planner refused {self.phase} "
-                                        f"cube {self.cube}: {exc}")
-                        self.planner_errors.append(self.failure)
-                        return cmd
+                        reason = f"Planner refused {self.phase} cube {self.cube}: {exc}"
+                        self.planner_errors.append(reason)
+                        self.recover(reason)
+                        return self.recovery_command(cmd, 0.0)
             if delivery and self.arm_path:
                 actual = env.data.qpos[self.env.arm_qadr]
                 while (self.path_cursor < len(self.arm_path) and
@@ -579,12 +669,9 @@ class ScriptedIK:
                         else:
                             self.settling_since = None
                             if elapsed > 3.0:
-                                if self.attempts[self.cube] < self.max_retries:
-                                    self.attempts[self.cube] += 1
-                                    self.retries += 1
-                                    self.advance("navigate_pick")
-                                else:
-                                    self.failure = f"Cube {self.cube} did not settle inside bin"
+                                self.recover(
+                                    f"Cube {self.cube} did not settle inside bin after release")
+                                return self.recovery_command(cmd, 0.0)
                 else:
                     self.advance(next_phase)
             elif self.phase == "lower" and distance < .10 and elapsed > .7:
@@ -602,8 +689,9 @@ class ScriptedIK:
                     self.advance("open")
             elif self.phase == "open" and elapsed > .9:
                 self.advance("retract")
-        if elapsed > 22.0:
-            self.failure = f"Timed out in phase {self.phase} on cube {self.cube}"
+        if elapsed > 22.0 and not self.phase.startswith("recover_"):
+            self.recover(f"Timed out in phase {self.phase} on cube {self.cube}")
+            return self.recovery_command(cmd, 0.0)
         # Native Gen3 actuators may start at exact +/-pi and occasionally
         # slightly exceed our conservative *software* range during movement.
         # Clamp ONLY the scripted IK teacher. Model/VLA outputs are still
@@ -618,14 +706,20 @@ class ScriptedIK:
         return validate_action(bounded)
 
     def next_cube(self, cmd):
-        self.cube += 1
-        if self.cube == CUBES:
-            self.done = self.env.count_placed() == CUBES
+        current = self.cube
+        next_cube = self.scheduler.choose(self.env.placed,
+                                          current=current, rotate=True)
+        if next_cube is None:
+            self.done = self.env.cubes_settled()
             if not self.done:
-                self.failure = "One or more earlier cubes left the bin"
+                self.failure = "No eligible undelivered cubes or unsettled bin"
         else:
+            self.cube = next_cube
             # Do not drive the base with the gripper still inside the bin.
-            self.advance("depart_bin")
+            if self.phase in ("navigate_pick", "hover"):
+                self.advance("navigate_pick")
+            else:
+                self.advance("depart_bin")
         return cmd
 
 
@@ -659,10 +753,15 @@ def run(args):
                     env.monitor_phase = script.phase if script else "VLA"
                     contacts_before = script.checker.contacts if script else 0
                     env.step(action)
-                    if (script and args.planner == "ompl" and
-                            script.checker.contacts > contacts_before):
-                        raise RuntimeError("Physical arm/bin collision detected: "
+                    if script:
+                        if (args.planner == "ompl" and
+                                script.checker.contacts > contacts_before and
+                                not script.phase.startswith("recover_")):
+                            # Safety interrupt: cancel planned movement, retry.
+                            script.recover("Physical arm/bin contact: "
                                            + str(script.checker.contact_examples[-1]))
+                        else:
+                            script.after_step()
                 except (ValueError, RuntimeError, np.linalg.LinAlgError) as exc:
                     error = f"Controller error: {type(exc).__name__}: {exc}"
                     print(error, flush=True)
@@ -714,6 +813,7 @@ def run(args):
               "script_last_ik_error": script.prev_ik_error if script else None,
               "planner": script.planner_report() if script else None,
               "planner_errors": script.planner_errors if script else None,
+              "recovery": script.retry_report() if script else None,
               "last_arm_q": env.data.qpos[env.arm_qadr].round(4).tolist(),
               "last_arm_target": (script.arm_goal.round(4).tolist()
                                   if script and script.arm_goal is not None else None),
@@ -735,8 +835,10 @@ def main(argv=None):
     parser.add_argument("--policy", choices=("scripted", "smolvla"), default="scripted")
     parser.add_argument("--checkpoint", help="Local trained 11D TidyBot SmolVLA checkpoint")
     parser.add_argument("--device", choices=("cpu", "mps", "cuda"), default="cpu")
-    parser.add_argument("--max-steps", type=int, default=3500)
-    parser.add_argument("--retries", type=int, default=1)
+    parser.add_argument("--max-steps", type=int, default=6000)
+    parser.add_argument("--retries", type=int, default=-1,
+                        help="Additional retries per cube; -1 keeps revisiting "
+                             "all undelivered cubes until --max-steps")
     parser.add_argument("--planner", choices=("vertical", "ompl"), default="vertical",
                         help="Vertical Cartesian deposit with checked direct arm moves, or OMPL RRTConnect")
     parser.add_argument("--planner-timeout", type=float, default=2.5,
@@ -749,8 +851,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.planner_timeout <= 0:
         parser.error("--planner-timeout must be positive")
-    if args.max_steps < 1 or args.retries < 0:
-        parser.error("--max-steps must be positive; --retries must be nonnegative")
+    if args.max_steps < 1 or args.retries < -1:
+        parser.error("--max-steps must be positive; --retries must be >= -1")
     if args.policy == "smolvla" and not args.checkpoint:
         parser.error("Real VLA inference requires a trained --checkpoint for 11D TidyBot")
     if args.check_model:
