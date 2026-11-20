@@ -524,7 +524,12 @@ class ScriptedIK:
                     and path_finished and distance < .15 and elapsed > .5):
                 next_phase = {"hover": "lower", "lift": "navigate_bin",
                               "preplace": "place", "retract": "done"}[self.phase]
-                if next_phase == "done":
+                if self.phase == "retract" and self.vertical_index < 3:
+                    self.vertical_index += 1
+                    self.arm_goal = None
+                    self.arm_path = []
+                    self.path_cursor = 0
+                elif next_phase == "done":
                     # Assess physical result after release, not model intention.
                     if elapsed > 1.25:
                         stable = (env.placed(self.cube) and
@@ -543,11 +548,6 @@ class ScriptedIK:
                                     self.advance("navigate_pick")
                                 else:
                                     self.failure = f"Cube {self.cube} did not settle inside bin"
-                elif self.phase == "retract" and self.vertical_index < 3:
-                    self.vertical_index += 1
-                    self.arm_goal = None
-                    self.arm_path = []
-                    self.path_cursor = 0
                 else:
                     self.advance(next_phase)
             elif self.phase == "lower" and distance < .10 and elapsed > .7:
