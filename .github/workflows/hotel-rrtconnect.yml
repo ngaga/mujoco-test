@@ -65,8 +65,9 @@ jobs:
                 'Delivered=', r['delivered'], '/3', 'Failure=', r['failure'])
           assert r['cubes'] == 3
           assert not r['vla_inference_executed']
-          if r['injected_gripper_drop']:
-              assert r['recovery']['retries'] > 0, 'Injected drop must trigger a new attempt'
+          assert r['injected_gripper_drop'], 'Fault test must physically open the gripper'
+          assert r['recovery']['retries'] > 0, 'Injected drop must trigger a new attempt'
+          assert r['recovery']['retry_events'], 'No physical retry events reported'
           PY
       - name: Strict report of collision prevention and three-cube outcome
         run: |
