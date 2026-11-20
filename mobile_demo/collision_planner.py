@@ -251,7 +251,7 @@ class JointMotionPlanner:
             q = np.array([state[i] for i in range(7)], dtype=float)
             return self.checker.valid(q, base, carrying=carrying,
                                       ignore_cube=ignore_cube)
-        setup.setStateValidityChecker(ob.StateValidityCheckerFn(valid))
+        setup.setStateValidityChecker(valid)
         # Small enough OMPL subdivisions to reject narrow bin-wall crossings.
         setup.getSpaceInformation().setStateValidityCheckingResolution(0.0015)
         a, b = ob.State(space), ob.State(space)
